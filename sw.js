@@ -1,6 +1,6 @@
 // Guarda os arquivos do app para abrir mesmo sem internet. Dados não passam por aqui.
-const VERSAO = 'marke-agenda-6';
-const ARQUIVOS = ['./', 'index.html', 'estilo.css', 'app.js', 'manifest.webmanifest', 'icone-180.png', 'icone-192.png', 'icone-512.png'];
+const VERSAO = 'marke-agenda-7';
+const ARQUIVOS = ['./', 'index.html', 'estilo.css?v=7', 'app.js?v=7', 'manifest.webmanifest', 'icone-180.png', 'icone-192.png', 'icone-512.png'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSAO).then(c => c.addAll(ARQUIVOS))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
