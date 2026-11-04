@@ -341,9 +341,24 @@ function desenharNotas(m) {
   D.Notas.forEach(n => { const i = el('div', 'nota-item', '<b>' + esc(n.Titulo || '(sem título)') + '</b><span>' + esc((n.Texto || '').replace(/\s+/g, ' ')) + '</span>'); i.onclick = () => editarNota(n); l.appendChild(i); });
   m.appendChild(l);
   if (!D.Notas.length) m.appendChild(el('div', 'vazio-lista', 'Nenhuma nota.'));
-  const sair = el('button', 'botao perigo', 'Sair da conta (' + esc(conta.email) + ')'); sair.style.marginTop = '30px'; sair.style.width = '100%';
-  sair.onclick = () => { if (confirm('Sair da conta? A agenda continua no Google Drive e no computador.')) { localStorage.clear(); location.reload(); } };
-  m.appendChild(sair);
+}
+
+// ---------------------------------------------------------------- conta / sair
+function sairDaConta() {
+  if (!confirm('Sair da conta ' + conta.email + '?\n\nA agenda continua salva no Google Drive e no computador. Para voltar, é só entrar de novo.')) return;
+  try { if (token && window.google) google.accounts.oauth2.revoke(token, () => { }); } catch (e) { }
+  const cliente = localStorage.getItem('ma_client');
+  localStorage.clear();
+  if (cliente) localStorage.setItem('ma_client', cliente);
+  location.reload();
+}
+function abrirConta() {
+  const c = el('div');
+  c.appendChild(el('h3', null, esc(conta.nome || conta.email)));
+  c.appendChild(el('div', 'sub', esc(conta.email) + (ultimaSinc ? ' · sincronizado às ' + ultimaSinc : '')));
+  c.appendChild(acao('☁ Sincronizar agora', () => sincronizar(true)));
+  c.appendChild(acao('Sair da conta', sairDaConta, true));
+  abrirFolha(c);
 }
 
 // ---------------------------------------------------------------- folha de opções
@@ -479,12 +494,14 @@ function avisar(t) {
 // ---------------------------------------------------------------- início
 function abrirApp() {
   $('#entrada').classList.add('escondido'); $('#app').classList.remove('escondido');
+  $('#btConta').textContent = ((conta.nome || conta.email || '?').trim()[0] || '?').toUpperCase();
   desenhar();
 }
 function iniciar() {
   iniciarGoogle();
   $('#btEntrar').onclick = entrar;
   $('#btSinc').onclick = () => sincronizar(true);
+  $('#btConta').onclick = abrirConta;
   $('#btAnt').onclick = () => { dia = maisDias(dia, -1); delete $('#conteudo').dataset.rolou; desenhar(); };
   $('#btProx').onclick = () => { dia = maisDias(dia, 1); delete $('#conteudo').dataset.rolou; desenhar(); };
   $('#btHoje').onclick = () => { dia = hoje(); delete $('#conteudo').dataset.rolou; desenhar(); };
