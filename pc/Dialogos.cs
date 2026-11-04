@@ -271,6 +271,80 @@ namespace MarkeAgenda
         }
     }
 
+    // ------------------------------------------------------------------ lixeira
+    public class DialogoLixeira : DialogoBase
+    {
+        public DialogoLixeira(Dados d) : base("Lixeira", 520)
+        {
+            Rotulo(this, "Tarefas removidas (ficam aqui por 30 dias)");
+            ListBox lb = Campo(this, null, new ListBox { DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 44, IntegralHeight = false, SelectionMode = SelectionMode.MultiExtended }, 320);
+            Func<List<Tarefa>> itens = () => d.Tarefas.Where(t => !t.Ativa()).OrderByDescending(t => t.NaLixeira).ToList();
+            lb.DrawItem += (s, e) =>
+            {
+                if (e.Index < 0) return;
+                List<Tarefa> l = itens();
+                if (e.Index >= l.Count) return;
+                Tarefa t = l[e.Index];
+                bool sel = (e.State & DrawItemState.Selected) != 0;
+                using (SolidBrush b = new SolidBrush(sel ? Tema.Linha : Tema.Painel)) e.Graphics.FillRectangle(b, e.Bounds);
+                using (SolidBrush b = new SolidBrush(d.CorDe(t))) e.Graphics.FillRectangle(b, e.Bounds.X + 4, e.Bounds.Y + 8, 4, e.Bounds.Height - 16);
+                TextRenderer.DrawText(e.Graphics, t.Titulo, Tema.Negrito, new Rectangle(e.Bounds.X + 16, e.Bounds.Y + 4, e.Bounds.Width - 20, 20), Tema.Texto, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                DateTime q;
+                string quando = DateTime.TryParse(t.NaLixeira, null, System.Globalization.DateTimeStyles.RoundtripKind, out q) ? q.ToLocalTime().ToString("dd/MM HH:mm") : "";
+                TextRenderer.DrawText(e.Graphics, (t.Origem == "Manual" || string.IsNullOrEmpty(t.Origem) ? "Criada por você" : t.Origem) + "  ·  removida em " + quando,
+                    Tema.Pequena, new Rectangle(e.Bounds.X + 16, e.Bounds.Y + 23, e.Bounds.Width - 20, 16), Tema.Fraco, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            };
+            Label vazio = new Label { Text = "A Lixeira está vazia.", AutoSize = false, TextAlign = ContentAlignment.MiddleCenter, Bounds = lb.Bounds, ForeColor = Tema.Fraco, BackColor = Tema.Painel };
+            Controls.Add(vazio); vazio.BringToFront();
+            Action recarregar = () =>
+            {
+                lb.BeginUpdate(); lb.Items.Clear();
+                foreach (Tarefa t in itens()) lb.Items.Add(t.Id);
+                lb.EndUpdate();
+                vazio.Visible = lb.Items.Count == 0;
+            };
+
+            Button restaurar = Tema.Botao("Restaurar", true), apagar = Tema.Botao("Excluir de vez", false), esvaziar = Tema.Botao("Esvaziar Lixeira", false);
+            restaurar.Location = new Point(X, y); apagar.Location = new Point(X + 104, y); esvaziar.Location = new Point(X + 232, y);
+            Controls.AddRange(new Control[] { restaurar, apagar, esvaziar });
+            y += 46;
+            Func<List<Tarefa>> selecionadas = () => { List<Tarefa> l = itens(); return lb.SelectedIndices.Cast<int>().Where(i => i < l.Count).Select(i => l[i]).ToList(); };
+            restaurar.Click += (s, e) =>
+            {
+                foreach (Tarefa t in selecionadas())
+                {
+                    t.NaLixeira = null;
+                    if (!string.IsNullOrEmpty(t.Ref)) d.NaoSaoMinhas.Remove(t.Origem + ":" + t.Ref);   // volta a ser "minha"
+                }
+                recarregar();
+            };
+            apagar.Click += (s, e) =>
+            {
+                List<Tarefa> sel = selecionadas();
+                if (sel.Count == 0) return;
+                if (MessageBox.Show(this, "Excluir de vez " + sel.Count + " tarefa(s)? Não tem volta.", "Lixeira", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                foreach (Tarefa t in sel) d.Tarefas.Remove(t);
+                recarregar();
+            };
+            esvaziar.Click += (s, e) =>
+            {
+                int n = d.Tarefas.Count(t => !t.Ativa());
+                if (n == 0) return;
+                if (MessageBox.Show(this, "Excluir de vez as " + n + " tarefa(s) da Lixeira? Não tem volta.", "Lixeira", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                d.Tarefas.RemoveAll(t => !t.Ativa());
+                recarregar();
+            };
+            lb.DoubleClick += (s, e) => restaurar.PerformClick();
+            recarregar();
+
+            Button ok = Tema.Botao("Fechar", true);
+            ok.Click += (s, e) => DialogResult = DialogResult.OK;
+            Rodape(ok);
+            Controls.Remove((Control)CancelButton); CancelButton = ok;
+            vazio.BackColor = Tema.Painel;
+        }
+    }
+
     // ------------------------------------------------------------------ eventos do dia
     public class DialogoEventos : DialogoBase
     {

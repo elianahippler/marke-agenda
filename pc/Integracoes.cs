@@ -342,7 +342,7 @@ namespace MarkeAgenda
                 }
             }
             // Sumiu da ferramenta: se não estava planejada nem concluída, sai da lista.
-            d.Tarefas.RemoveAll(x => x.Origem == origem && !refs.Contains(x.Ref) && !x.Concluida
+            d.Tarefas.RemoveAll(x => x.Origem == origem && x.Ativa() && !refs.Contains(x.Ref) && !x.Concluida
                 && (origem == "Google" ? string.Compare(x.Data ?? "", Tarefa.Dia(DateTime.Today.AddDays(-7))) >= 0 : !x.EstaAgendada()));
             return novas;
         }

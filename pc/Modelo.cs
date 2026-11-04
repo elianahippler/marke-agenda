@@ -46,6 +46,8 @@ namespace MarkeAgenda
         public string SonecaAte { get; set; }           // adiado: avisar de novo neste momento
         public bool Aguardando { get; set; }            // em aguardo: depende de terceiros
         public bool Fixa { get; set; }                  // modelo: arrastar cria uma cópia, ela nunca sai da lista
+        public string NaLixeira { get; set; }           // quando foi para a Lixeira (vazio = ativa)
+        public bool Ativa() { return string.IsNullOrEmpty(NaLixeira); }
         public string AguardandoDe { get; set; }        // de quem / do quê
 
         public bool EstaAgendada() { return !string.IsNullOrEmpty(Data) && !string.IsNullOrEmpty(Hora); }
@@ -56,7 +58,7 @@ namespace MarkeAgenda
         /// A tarefa aparece neste dia? (considera a repetição)
         public bool OcorreEm(DateTime dia)
         {
-            if (Fixa || !EstaAgendada()) return false;
+            if (Fixa || !Ativa() || !EstaAgendada()) return false;
             DateTime ini;
             if (!DateTime.TryParse(Data, out ini)) return false;
             dia = dia.Date; ini = ini.Date;
@@ -280,6 +282,8 @@ namespace MarkeAgenda
             if (d.HorariosExtras == null) d.HorariosExtras = new Dictionary<string, List<string>>();
             if (d.Eventos == null) d.Eventos = new List<EventoDia>();
             if (d.NaoSaoMinhas == null) d.NaoSaoMinhas = new List<string>();
+            string limiteLixeira = DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
+            d.Tarefas.RemoveAll(t => !string.IsNullOrEmpty(t.NaLixeira) && string.CompareOrdinal(t.NaLixeira, limiteLixeira) < 0);
             if (d.Excluidos == null) d.Excluidos = new Dictionary<string, string>();
             if (d.Assinaturas == null) d.Assinaturas = new Dictionary<string, string>();
             if (d.Tipos.Count == 0)

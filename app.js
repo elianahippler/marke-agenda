@@ -47,7 +47,7 @@ const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julh
 function agendada(t) { return !!t.Data && !!t.Hora; }
 function repete(t) { return !!t.Repetir; }
 function ocorreEm(t, d) {
-  if (t.Fixa || !agendada(t)) return false;
+  if (t.Fixa || t.NaLixeira || !agendada(t)) return false;
   const ini = deChave(t.Data);
   if (!repete(t)) return chave(d) === t.Data;
   if (d < ini) return false;
@@ -316,7 +316,7 @@ function desenharTarefas(m) {
     const x = el('button', filtroTarefas === k ? 'ativo' : '', n); x.onclick = () => { filtroTarefas = k; desenhar(); }; fl.appendChild(x);
   });
   m.appendChild(fl);
-  let ts = D.Tarefas.filter(t => !t.Aguardando && !t.Fixa);
+  let ts = D.Tarefas.filter(t => !t.Aguardando && !t.Fixa && !t.NaLixeira);
   if (filtroTarefas === 'sem') ts = ts.filter(t => !agendada(t) && !t.Concluida);
   else if (filtroTarefas === 'resolvidas') ts = ts.filter(t => t.Concluida || (repete(t) && concluidaEm(t, dia)));
   ts.sort((a, b) => (a.Concluida - b.Concluida) || (a.Data || '9').localeCompare(b.Data || '9') || (a.Titulo || '').localeCompare(b.Titulo || ''));
@@ -326,11 +326,11 @@ function desenharTarefas(m) {
 }
 
 function desenharAguardo(m) {
-  const fixas = D.Tarefas.filter(t => t.Fixa).sort((a, b) => a.Titulo.localeCompare(b.Titulo));
+  const fixas = D.Tarefas.filter(t => t.Fixa && !t.NaLixeira).sort((a, b) => a.Titulo.localeCompare(b.Titulo));
   m.appendChild(el('div', 'titulo-secao', 'Tarefas fixas <span class="fraco pequeno">toque para usar</span>'));
   const lf = el('div', 'lista'); fixas.forEach(t => lf.appendChild(cartao(t, false))); m.appendChild(lf);
   if (!fixas.length) m.appendChild(el('div', 'vazio-lista', 'Nenhuma tarefa fixa. Crie no computador ou salve uma tarefa como fixa.'));
-  const ag = D.Tarefas.filter(t => t.Aguardando && !t.Concluida && !t.Fixa);
+  const ag = D.Tarefas.filter(t => t.Aguardando && !t.Concluida && !t.Fixa && !t.NaLixeira);
   m.appendChild(el('div', 'titulo-secao', 'Em aguardo <span class="fraco pequeno">' + ag.length + '</span>'));
   const la = el('div', 'lista'); ag.forEach(t => la.appendChild(cartao(t, false))); m.appendChild(la);
   if (!ag.length) m.appendChild(el('div', 'vazio-lista', 'Nada em aguardo.'));
@@ -349,6 +349,39 @@ function desenharNotas(m) {
   if (!D.Notas.length) m.appendChild(el('div', 'vazio-lista', 'Nenhuma nota.'));
 }
 
+// ---------------------------------------------------------------- lixeira
+function abrirLixeira() {
+  const c = el('div');
+  c.appendChild(el('h3', null, 'Lixeira'));
+  c.appendChild(el('div', 'sub', 'Tarefas removidas ficam aqui por 30 dias. Toque para restaurar.'));
+  const itens = D.Tarefas.filter(t => t.NaLixeira).sort((a, b) => b.NaLixeira.localeCompare(a.NaLixeira));
+  if (!itens.length) c.appendChild(el('div', 'vazio-lista', 'A Lixeira está vazia.'));
+  itens.forEach(t => {
+    const quando = new Date(t.NaLixeira).toLocaleString('pt-BR').slice(0, 17);
+    const b = el('button', 'acao', esc(t.Titulo) + '<br><small class="fraco">' + (t.Origem && t.Origem !== 'Manual' ? esc(t.Origem) : 'Criada por você') + ' · removida em ' + quando + '</small>');
+    b.onclick = () => {
+      const c2 = el('div');
+      c2.appendChild(el('h3', null, esc(t.Titulo)));
+      c2.appendChild(acao('↩ Restaurar', () => {
+        t.NaLixeira = null;
+        if (t.Ref) D.NaoSaoMinhas = D.NaoSaoMinhas.filter(k => k !== t.Origem + ':' + t.Ref);
+        gravarLocal(); desenhar(); abrirLixeira();
+      }));
+      c2.appendChild(acao('Excluir de vez', () => { if (confirm('Excluir de vez? Não tem volta.')) { D.Tarefas = D.Tarefas.filter(x => x !== t); gravarLocal(); desenhar(); abrirLixeira(); } }, true));
+      abrirFolha(c2);
+    };
+    c.appendChild(b);
+  });
+  if (itens.length) c.appendChild(acao('Esvaziar Lixeira', () => { if (confirm('Excluir de vez as ' + itens.length + ' tarefa(s) da Lixeira? Não tem volta.')) { D.Tarefas = D.Tarefas.filter(x => !x.NaLixeira); gravarLocal(); desenhar(); } }, true));
+  abrirFolha(c);
+}
+function limparLixeiraAntiga() {
+  const limite = new Date(Date.now() - 30 * 864e5).toISOString();
+  const antes = D.Tarefas.length;
+  D.Tarefas = D.Tarefas.filter(t => !t.NaLixeira || t.NaLixeira >= limite);
+  if (D.Tarefas.length !== antes) gravarLocal();
+}
+
 // ---------------------------------------------------------------- conta / sair
 function sairDaConta() {
   if (!confirm('Sair da conta ' + conta.email + '?\n\nA agenda continua salva no Google Drive e no computador. Para voltar, é só entrar de novo.')) return;
@@ -361,8 +394,10 @@ function sairDaConta() {
 function abrirConta() {
   const c = el('div');
   c.appendChild(el('h3', null, esc(conta.nome || conta.email)));
-  c.appendChild(el('div', 'sub', esc(conta.email) + (ultimaSinc ? ' · sincronizado às ' + ultimaSinc : '') + ' · versão 8'));
+  c.appendChild(el('div', 'sub', esc(conta.email) + (ultimaSinc ? ' · sincronizado às ' + ultimaSinc : '') + ' · versão 9'));
   c.appendChild(acao('☁ Sincronizar agora', () => sincronizar(true)));
+  const nLix = D.Tarefas.filter(t => t.NaLixeira).length;
+  c.appendChild(acao('🗑 Lixeira' + (nLix ? ' (' + nLix + ')' : ''), abrirLixeira));
   c.appendChild(acao('Sair da conta', sairDaConta, true));
   abrirFolha(c);
 }
@@ -403,7 +438,7 @@ function copiar(f) {
 }
 function naoEMinha(t) {
   if (t.Origem && t.Origem !== 'Manual' && t.Ref) { const k = t.Origem + ':' + t.Ref; if (!D.NaoSaoMinhas.includes(k)) D.NaoSaoMinhas.push(k); }
-  D.Tarefas = D.Tarefas.filter(x => x !== t); gravarLocal(); desenhar();
+  t.NaLixeira = agoraISO(); gravarLocal(); desenhar();
 }
 
 function escolherHorario(t, nova) {
@@ -436,8 +471,8 @@ function adicionarNoHorario(h) {
     fecharFolha(); gravarLocal(); desenhar();
   };
   c.appendChild(ok);
-  const sem = D.Tarefas.filter(t => !t.Fixa && !t.Aguardando && !agendada(t) && !t.Concluida);
-  const fixas = D.Tarefas.filter(t => t.Fixa);
+  const sem = D.Tarefas.filter(t => !t.Fixa && !t.NaLixeira && !t.Aguardando && !agendada(t) && !t.Concluida);
+  const fixas = D.Tarefas.filter(t => t.Fixa && !t.NaLixeira);
   const usar = (t, copia) => { const x = copia ? copiar(t) : t; x.Data = chave(dia); x.Hora = h; x.Aguardando = false; if (copia) D.Tarefas.push(x); fecharFolha(); gravarLocal(); desenhar(); };
   if (fixas.length) { c.appendChild(el('label', null, 'Tarefas fixas')); fixas.forEach(t => c.appendChild(acao('📌 ' + esc(t.Titulo), () => usar(t, true)))); }
   if (sem.length) { c.appendChild(el('label', null, 'Tarefas sem horário')); sem.slice(0, 40).forEach(t => c.appendChild(acao(esc(t.Titulo), () => usar(t, false)))); }
@@ -499,6 +534,7 @@ function avisar(t) {
 
 // ---------------------------------------------------------------- início
 function abrirApp() {
+  limparLixeiraAntiga();
   $('#entrada').classList.add('escondido'); $('#app').classList.remove('escondido');
   $('#btConta').textContent = ((conta.nome || conta.email || '?').trim()[0] || '?').toUpperCase();
   desenhar();
@@ -518,7 +554,7 @@ function iniciar() {
   setInterval(() => { if (tokenValido()) sincronizar(false); }, 120000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { if (tokenValido()) sincronizar(false); desenhar(); } });
   if (window.Notification && Notification.permission === 'default') document.body.addEventListener('click', () => Notification.requestPermission(), { once: true });
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=8').then(r => r.update());
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=9').then(r => r.update());
   verificarAvisos();
 }
 iniciar();

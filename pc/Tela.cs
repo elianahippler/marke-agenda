@@ -611,6 +611,12 @@ namespace MarkeAgenda
                     lbStatus.Text = "Elas voltam na próxima atualização.";
                     AtualizarIntegracoes(false);
                 });
+            int naLixeira = dados.Tarefas.Count(t => !t.Ativa());
+            m.Items.Add("Lixeira" + (naLixeira > 0 ? " (" + naLixeira + ")" : ""), null, (s, e) =>
+            {
+                using (DialogoLixeira f = new DialogoLixeira(dados)) f.ShowDialog(this);
+                dados.Salvar(); AtualizarTudo();
+            });
             m.Items.Add("Abrir a pasta de dados", null, (s, e) => Process.Start(Dados.Pasta));
             m.Items.Add(new ToolStripSeparator());
             m.Items.Add("Sincronizar com o celular agora", null, (s, e) => Sincronizar(true));
@@ -976,7 +982,7 @@ namespace MarkeAgenda
 
         void AtualizarProgresso()
         {
-            List<Tarefa> doDia = dados.Tarefas.Where(t => t.OcorreEm(dia)).ToList();
+            List<Tarefa> doDia = Ativas.Where(t => t.OcorreEm(dia)).ToList();
             int feitas = doDia.Count(t => t.ConcluidaEm(dia));
             int atrasadas = doDia.Count(t => Cartao.Atrasada(t, dia, dados.Config.Intervalo));
             int minutos = doDia.Sum(t => t.Duracao > 0 ? t.Duracao : dados.Config.Intervalo);
@@ -988,12 +994,15 @@ namespace MarkeAgenda
 
         Tarefa Achar(string id) { return dados.Tarefas.FirstOrDefault(x => x.Id == id); }
 
+        /// Tarefas fora da Lixeira.
+        IEnumerable<Tarefa> Ativas { get { return dados.Tarefas.Where(t => t.Ativa()); } }
+
         void PreencherLista()
         {
             if (filtroTipo.SelectedItem == null) return;
             string q = busca.Text.Trim().ToLowerInvariant();
             string tipo = filtroTipo.SelectedIndex > 0 ? dados.Tipos[filtroTipo.SelectedIndex - 1].Id : null;
-            IEnumerable<Tarefa> ts = dados.Tarefas.Where(t => !t.Aguardando && !t.Fixa);
+            IEnumerable<Tarefa> ts = Ativas.Where(t => !t.Aguardando && !t.Fixa);
             if (rbSemHorario.Checked) ts = ts.Where(t => !t.EstaAgendada() && !t.Concluida);
             else if (rbResolvidas.Checked) ts = ts.Where(t => t.Concluida || (t.Repete() && t.ConcluidaEm(dia)));
             else ts = ts.Where(t => true);
@@ -1003,12 +1012,12 @@ namespace MarkeAgenda
             Recarregar(lista, ts);
             lbTarefas.Text = "Tarefas  (" + lista.Items.Count + ")";
 
-            Recarregar(listaAguardo, dados.Tarefas.Where(x => x.Aguardando && !x.Concluida && !x.Fixa).OrderBy(x => x.Criada));
+            Recarregar(listaAguardo, Ativas.Where(x => x.Aguardando && !x.Concluida && !x.Fixa).OrderBy(x => x.Criada));
             lbAguardo.Text = "Em aguardo  (" + listaAguardo.Items.Count + ")";
             vazioAguardo.Visible = listaAguardo.Items.Count == 0;
             if (vazioAguardo.Visible) vazioAguardo.BringToFront(); else listaAguardo.BringToFront();
 
-            Recarregar(listaFixas, dados.Tarefas.Where(x => x.Fixa).OrderBy(x => x.Titulo));
+            Recarregar(listaFixas, Ativas.Where(x => x.Fixa).OrderBy(x => x.Titulo));
             lbFixas.Text = "Tarefas fixas  (" + listaFixas.Items.Count + ")";
             vazioFixas.Visible = listaFixas.Items.Count == 0;
             if (vazioFixas.Visible) vazioFixas.BringToFront(); else listaFixas.BringToFront();
@@ -1148,7 +1157,7 @@ namespace MarkeAgenda
             linhas.Clear();
             List<string> slots = Slots();
             ultimoSlotAgora = SlotAgora();
-            List<Tarefa> doDia = dados.Tarefas.Where(t => t.OcorreEm(dia)).OrderBy(t => t.Hora).ToList();
+            List<Tarefa> doDia = Ativas.Where(t => t.OcorreEm(dia)).OrderBy(t => t.Hora).ToList();
             int larguraUtil = grade.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 2;
             const int colHora = 74, chipL = 260, chipA = 44, gap = 6;
             int porLinha = Math.Max(1, (larguraUtil - colHora - 10) / (chipL + gap));
@@ -1328,8 +1337,9 @@ namespace MarkeAgenda
 
         void Excluir(Tarefa t)
         {
-            if (MessageBox.Show(this, "Excluir \"" + t.Titulo + "\"?" + (t.Origem != "Manual" ? "\n\nEla volta na próxima atualização se ainda existir no " + t.Origem + "." : ""), "Excluir tarefa", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
-            dados.Tarefas.Remove(t); dados.Salvar(); AtualizarTudo();
+            if (MessageBox.Show(this, "Mandar \"" + t.Titulo + "\" para a Lixeira?\n\nDá para restaurar por 30 dias (menu do seu nome > Lixeira).", "Excluir tarefa", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            t.NaLixeira = Sincronia.Agora(); dados.Salvar(); AtualizarTudo();
+            lbStatus.Text = "\"" + t.Titulo + "\" foi para a Lixeira.";
         }
 
         /// Lixeirinha: tira a tarefa e, se veio do TomTicket/Markedesk/Google, não deixa voltar.
@@ -1340,10 +1350,10 @@ namespace MarkeAgenda
                 string k = t.Origem + ":" + t.Ref;
                 if (!dados.NaoSaoMinhas.Contains(k)) dados.NaoSaoMinhas.Add(k);
             }
-            dados.Tarefas.Remove(t);
+            t.NaLixeira = Sincronia.Agora();
             dados.Salvar();
             AtualizarTudo();
-            lbStatus.Text = "\"" + t.Titulo + "\" removida (não é minha)" + (t.Origem != "Manual" ? ". Não volta ao atualizar." : ".");
+            lbStatus.Text = "\"" + t.Titulo + "\" foi para a Lixeira (menu do seu nome > Lixeira para restaurar).";
         }
 
         public void AlternarConcluida(Tarefa t)
@@ -1390,7 +1400,7 @@ namespace MarkeAgenda
         {
             DateTime alvo = dia.AddDays(1);
             while (alvo.DayOfWeek == DayOfWeek.Saturday || alvo.DayOfWeek == DayOfWeek.Sunday) alvo = alvo.AddDays(1);
-            List<Tarefa> pend = dados.Tarefas.Where(t => t.OcorreEm(dia) && !t.Repete() && !t.ConcluidaEm(dia) && t.Origem != "Google").ToList();
+            List<Tarefa> pend = Ativas.Where(t => t.OcorreEm(dia) && !t.Repete() && !t.ConcluidaEm(dia) && t.Origem != "Google").ToList();
             if (pend.Count == 0) { MessageBox.Show(this, "Nenhuma pendência neste dia.", "Levar pendentes"); return; }
             if (MessageBox.Show(this, pend.Count + " tarefa(s) pendente(s) vão para " + alvo.ToString("dddd, dd/MM", new CultureInfo("pt-BR")) + ", no mesmo horário. Continuar?", "Levar pendentes", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
             foreach (Tarefa t in pend) { t.Data = Tarefa.Dia(alvo); t.AvisadoEm = null; }
@@ -1400,13 +1410,13 @@ namespace MarkeAgenda
 
         void CopiarPlano()
         {
-            List<Tarefa> doDia = dados.Tarefas.Where(t => t.OcorreEm(dia)).OrderBy(t => t.Hora).ToList();
+            List<Tarefa> doDia = Ativas.Where(t => t.OcorreEm(dia)).OrderBy(t => t.Hora).ToList();
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("Plano de " + dia.ToString("dd/MM/yyyy"));
             sb.AppendLine();
             foreach (Tarefa t in doDia)
                 sb.AppendLine(t.Hora + "  " + (t.ConcluidaEm(dia) ? "[feito] " : "") + t.Titulo + (t.Duracao > 0 ? " (" + Cartao.Duracao(t.Duracao) + ")" : ""));
-            List<Tarefa> ag = dados.Tarefas.Where(t => t.Aguardando && !t.Concluida).ToList();
+            List<Tarefa> ag = Ativas.Where(t => t.Aguardando && !t.Concluida).ToList();
             if (ag.Count > 0)
             {
                 sb.AppendLine(); sb.AppendLine("Em aguardo:");
@@ -1418,10 +1428,10 @@ namespace MarkeAgenda
 
         void LimparConcluidas()
         {
-            int n = dados.Tarefas.Count(t => t.Concluida && !t.EstaAgendada() && !t.Repete());
+            int n = Ativas.Count(t => t.Concluida && !t.EstaAgendada() && !t.Repete());
             if (n == 0) { MessageBox.Show(this, "Nenhuma concluída sem horário.", "Limpar"); return; }
             if (MessageBox.Show(this, "Excluir " + n + " tarefa(s) concluída(s) sem horário?", "Limpar", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
-            dados.Tarefas.RemoveAll(t => t.Concluida && !t.EstaAgendada() && !t.Repete());
+            foreach (Tarefa t in Ativas.Where(t => t.Concluida && !t.EstaAgendada() && !t.Repete()).ToList()) t.NaLixeira = Sincronia.Agora();
             dados.Salvar(); AtualizarTudo();
         }
 
@@ -1526,7 +1536,7 @@ namespace MarkeAgenda
             if (!dados.Config.AvisarLembretes) return;
             DateTime agora = DateTime.Now;
             string hoje = Tarefa.Dia(DateTime.Today);
-            foreach (Tarefa t in dados.Tarefas.Where(x => x.OcorreEm(DateTime.Today) && !x.ConcluidaEm(DateTime.Today)))
+            foreach (Tarefa t in Ativas.Where(x => x.OcorreEm(DateTime.Today) && !x.ConcluidaEm(DateTime.Today)))
             {
                 if (!dados.Config.AvisarTodas && !dados.TipoDe(t).Avisar) continue;
                 DateTime sa;
