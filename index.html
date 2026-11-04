@@ -22,8 +22,15 @@
   <img src="icone-192.png" alt="" class="logo-grande">
   <h1>Marke Agenda</h1>
   <p>Entre com a mesma conta Google do computador para ver e mudar a sua agenda.</p>
+  <div id="caixaCliente" class="caixa-cliente escondido">
+    <label for="campoCliente">Client ID do Google (tipo "Aplicativo da Web")</label>
+    <input id="campoCliente" placeholder="123456-abc.apps.googleusercontent.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Criar o Client ID no Google Cloud ›</a>
+    <p class="fraco pequeno">Em "Origens JavaScript autorizadas" coloque: <b>https://elianahippler.github.io</b></p>
+  </div>
   <button id="btEntrar" class="botao grande">Entrar com Google</button>
   <p id="erroEntrada" class="erro"></p>
+  <button id="btTrocarCliente" class="fraco pequeno link escondido">Trocar o Client ID</button>
   <p class="fraco pequeno">Seus dados ficam só no seu Google Drive, numa pasta escondida que só a Marke Agenda enxerga.</p>
 </section>
 

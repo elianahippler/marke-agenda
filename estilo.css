@@ -25,6 +25,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--azul); }
 .logo-grande { width: 88px; height: 88px; border-radius: 22px; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
 .entrada h1 { margin: 14px 0 4px; } .entrada p { max-width: 340px; }
 
+.caixa-cliente { width: 100%; max-width: 360px; text-align: left; background: rgba(15,23,42,.6); border: 1px solid var(--linha);
+  border-radius: 14px; padding: 14px; margin: 10px 0; }
+.caixa-cliente label { display: block; color: var(--fraco); font-size: 13px; margin-bottom: 6px; }
+.caixa-cliente a { display: inline-block; margin-top: 10px; color: var(--claro); font-weight: 600; text-decoration: none; }
+.caixa-cliente p { margin: 8px 0 0; }
+.link { text-decoration: underline; margin-top: 4px; }
+
 /* topo */
 #app { display: flex; flex-direction: column; height: 100%; }
 .topo { padding: calc(var(--seguro-topo) + 8px) 14px 8px; background: linear-gradient(180deg, #172f69, var(--fundo)); }

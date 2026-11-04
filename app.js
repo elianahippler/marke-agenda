@@ -3,7 +3,10 @@
 'use strict';
 
 // ID do cliente OAuth "Aplicativo da Web" (Google Cloud > Credenciais).
-const CLIENT_ID = 'COLE_AQUI_O_CLIENT_ID_DO_CELULAR';
+// Pode vir fixo aqui ou ser colado na tela de entrada (fica guardado no aparelho).
+const CLIENT_ID_PADRAO = '554966142292-alt06npu0j304t9osgoser7f0nr53sga.apps.googleusercontent.com';
+let CLIENT_ID = localStorage.getItem('ma_client') || CLIENT_ID_PADRAO;
+function temCliente() { return /\.apps\.googleusercontent\.com$/.test(CLIENT_ID.trim()); }
 const ESCOPOS = 'openid email profile https://www.googleapis.com/auth/drive.appdata';
 const ARQUIVO = 'marke-agenda.json';
 
@@ -198,7 +201,14 @@ function mostrarSinc() {
 
 async function entrar() {
   $('#erroEntrada').textContent = '';
-  if (CLIENT_ID.startsWith('COLE_')) { $('#erroEntrada').textContent = 'O app ainda não foi ligado ao Google (falta o Client ID).'; return; }
+  if (!$('#caixaCliente').classList.contains('escondido')) {
+    const v = $('#campoCliente').value.trim();
+    if (!/\.apps\.googleusercontent\.com$/.test(v)) { $('#erroEntrada').textContent = 'Cole o Client ID (termina com .apps.googleusercontent.com).'; return; }
+    CLIENT_ID = v; localStorage.setItem('ma_client', v);
+    clienteToken = null; iniciarGoogle();
+    await new Promise(r => setTimeout(r, 400));
+  }
+  if (!temCliente()) { $('#caixaCliente').classList.remove('escondido'); $('#erroEntrada').textContent = 'Falta o Client ID do Google.'; return; }
   try {
     await pedirToken(false);
     const eu = await (await api('https://www.googleapis.com/oauth2/v3/userinfo')).json();
