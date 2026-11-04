@@ -495,6 +495,15 @@ function iniciar() {
   setInterval(() => { if (token) sincronizar(false); }, 120000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { if (token) sincronizar(false); desenhar(); } });
   if (window.Notification && Notification.permission === 'default') document.body.addEventListener('click', () => Notification.requestPermission(), { once: true });
+  // Login fica guardado no aparelho. A permissão do Google vence em 1 hora e o iPhone só deixa
+  // renová-la num toque: então o primeiro toque depois de vencer renova sozinho (a janelinha do
+  // Google abre e fecha sem pedir nada) e já sincroniza.
+  document.addEventListener('click', () => {
+    if (!conta || sincronizando || (token && Date.now() < tokenVence - 60000) || !temCliente()) return;
+    if (Date.now() - (window._ultimaRenovacao || 0) < 30000) return;
+    window._ultimaRenovacao = Date.now();
+    pedirToken(true).then(() => sincronizar(false)).catch(() => { });
+  }, true);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
   verificarAvisos();
 }
