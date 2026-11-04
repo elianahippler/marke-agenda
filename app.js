@@ -248,7 +248,7 @@ function cartao(t, naAgenda) {
   if (repete(t)) sub += ' · ↻ ' + nomeRepeticao(t.Repetir);
   const atr = naAgenda && atrasada(t, dia);
   if (atr) sub = 'Atrasada · ' + sub;
-  const selo = { Google: 'GOOGLE', TomTicket: 'TOMTICKET', Markedesk: 'MARKEDESK' }[t.Origem];
+  const selo = { Google: 'G', TomTicket: 'TT', Markedesk: 'MD' }[t.Origem];
   c.innerHTML = (t.Fixa ? '' : '<button class="bola">' + (feita ? '✓' : '') + '</button>') +
     '<div class="txt"><div class="tit">' + esc(t.Titulo) + '</div><div class="sub' + (atr ? ' atrasada' : '') + '">' + esc(sub) + '</div></div>' +
     (selo ? '<span class="selo">' + selo + '</span>' : '');
@@ -361,7 +361,7 @@ function sairDaConta() {
 function abrirConta() {
   const c = el('div');
   c.appendChild(el('h3', null, esc(conta.nome || conta.email)));
-  c.appendChild(el('div', 'sub', esc(conta.email) + (ultimaSinc ? ' · sincronizado às ' + ultimaSinc : '') + ' · versão 7'));
+  c.appendChild(el('div', 'sub', esc(conta.email) + (ultimaSinc ? ' · sincronizado às ' + ultimaSinc : '') + ' · versão 8'));
   c.appendChild(acao('☁ Sincronizar agora', () => sincronizar(true)));
   c.appendChild(acao('Sair da conta', sairDaConta, true));
   abrirFolha(c);
@@ -518,7 +518,7 @@ function iniciar() {
   setInterval(() => { if (tokenValido()) sincronizar(false); }, 120000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { if (tokenValido()) sincronizar(false); desenhar(); } });
   if (window.Notification && Notification.permission === 'default') document.body.addEventListener('click', () => Notification.requestPermission(), { once: true });
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=7').then(r => r.update());
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=8').then(r => r.update());
   verificarAvisos();
 }
 iniciar();
