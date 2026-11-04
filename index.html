@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Marke Agenda">
+<title>Marke Agenda</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icone-180.png">
+<link rel="icon" href="icone-192.png">
+<link rel="stylesheet" href="estilo.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+<!-- entrada -->
+<section id="entrada" class="entrada escondido">
+  <img src="icone-192.png" alt="" class="logo-grande">
+  <h1>Marke Agenda</h1>
+  <p>Entre com a mesma conta Google do computador para ver e mudar a sua agenda.</p>
+  <button id="btEntrar" class="botao grande">Entrar com Google</button>
+  <p id="erroEntrada" class="erro"></p>
+  <p class="fraco pequeno">Seus dados ficam só no seu Google Drive, numa pasta escondida que só a Marke Agenda enxerga.</p>
+</section>
+
+<!-- app -->
+<section id="app" class="escondido">
+  <header class="topo">
+    <div class="linha-topo">
+      <div class="marca"><img src="icone-192.png" alt=""><span>Marke Agenda</span></div>
+      <button id="btSinc" class="sinc" title="Sincronizar">☁ <span id="sincTexto">...</span></button>
+    </div>
+    <div class="nav-dia" id="navDia">
+      <button id="btAnt" class="redondo">‹</button>
+      <button id="btHoje" class="dia-atual"><span id="diaTitulo"></span><small id="diaSub"></small></button>
+      <button id="btProx" class="redondo">›</button>
+    </div>
+    <div class="progresso" id="progresso"><div id="barra"></div></div>
+  </header>
+
+  <main id="conteudo"></main>
+
+  <div id="aviso" class="aviso escondido"></div>
+
+  <nav class="abas">
+    <button data-aba="agenda" class="ativa"><span>🗓</span>Agenda</button>
+    <button data-aba="tarefas"><span>☰</span>Tarefas</button>
+    <button data-aba="aguardo"><span>⏳</span>Aguardo</button>
+    <button data-aba="notas"><span>✎</span>Notas</button>
+  </nav>
+</section>
+
+<!-- folha de opções (sobe de baixo) -->
+<div id="fundoFolha" class="fundo-folha escondido"></div>
+<div id="folha" class="folha escondido"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
