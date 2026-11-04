@@ -17,6 +17,7 @@ let D = carregar('ma_dados') || vazio();
 let assin = carregar('ma_assin') || {};
 let conta = carregar('ma_conta');            // { email, nome }
 let token = null, tokenVence = 0, clienteToken = null;
+(function () { const t = carregar('ma_token'); if (t && t.tokenVence > Date.now() + 60000) { token = t.token; tokenVence = t.tokenVence; } })();
 let dia = hoje();
 let aba = 'agenda';
 let filtroTarefas = 'sem';
@@ -150,24 +151,28 @@ function pedirToken(silencioso) {
     if (!clienteToken) return falha(new Error('Google ainda carregando, tente de novo.'));
     clienteToken.callback = (r) => {
       if (r.error) return falha(new Error(r.error === 'access_denied' ? 'Login cancelado.' : r.error));
-      token = r.access_token; tokenVence = Date.now() + (r.expires_in || 3600) * 1000; ok(token);
+      token = r.access_token; tokenVence = Date.now() + (r.expires_in || 3600) * 1000;
+      // guarda no aparelho: fechar e abrir o app não pede o Google de novo enquanto valer
+      localStorage.setItem('ma_token', JSON.stringify({ token, tokenVence }));
+      ok(token);
     };
     clienteToken.error_callback = (e) => falha(new Error(e && e.type === 'popup_closed' ? 'Login cancelado.' : 'Não foi possível entrar.'));
-    clienteToken.requestAccessToken({ prompt: silencioso ? '' : 'select_account', login_hint: conta ? conta.email : undefined });
+    // sempre a lista de contas do aparelho: é só tocar na sua
+    clienteToken.requestAccessToken({ prompt: 'select_account' });
   });
 }
 async function api(url, opcoes) {
   const tk = await pedirToken(true);
   opcoes = opcoes || {}; opcoes.headers = Object.assign({ Authorization: 'Bearer ' + tk }, opcoes.headers || {});
   const r = await fetch(url, opcoes);
-  if (r.status === 401) { token = null; throw new Error('Toque em ☁ para entrar de novo.'); }
+  if (r.status === 401) { token = null; localStorage.removeItem('ma_token'); throw new Error('Toque em ☁ para entrar de novo.'); }
   if (!r.ok) throw new Error('Google respondeu ' + r.status);
   return r;
 }
 
 async function sincronizar(manual) {
   if (sincronizando || !conta) return;
-  if (!token && !manual) { mostrarSinc(); return; }   // sem toque, o iPhone não deixa abrir o login
+  if (!tokenValido() && !manual) { mostrarSinc(); return; }   // sem toque, o iPhone não deixa abrir o Google
   sincronizando = true; mostrarSinc();
   try {
     const q = encodeURIComponent("name='" + ARQUIVO + "'");
@@ -196,8 +201,9 @@ let timerSinc = null;
 function agendarSinc() { clearTimeout(timerSinc); timerSinc = setTimeout(() => sincronizar(false), 4000); }
 function mostrarSinc() {
   const b = $('#btSinc'); b.classList.toggle('girando', sincronizando);
-  $('#sincTexto').textContent = sincronizando ? 'sincronizando' : !token ? 'tocar p/ sincronizar' : ultimaSinc ? ultimaSinc : 'ok';
+  $('#sincTexto').textContent = sincronizando ? 'sincronizando' : !tokenValido() ? 'tocar p/ sincronizar' : ultimaSinc ? ultimaSinc : 'ok';
 }
+function tokenValido() { return !!token && Date.now() < tokenVence - 60000; }
 
 async function entrar() {
   $('#erroEntrada').textContent = '';
@@ -509,18 +515,9 @@ function iniciar() {
   document.querySelectorAll('.abas button').forEach(b => b.onclick = () => { aba = b.dataset.aba; $('#conteudo').scrollTop = 0; desenhar(); });
   if (conta) abrirApp(); else $('#entrada').classList.remove('escondido');
   setInterval(() => { verificarAvisos(); if (aba === 'agenda') desenhar(); }, 30000);
-  setInterval(() => { if (token) sincronizar(false); }, 120000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { if (token) sincronizar(false); desenhar(); } });
+  setInterval(() => { if (tokenValido()) sincronizar(false); }, 120000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { if (tokenValido()) sincronizar(false); desenhar(); } });
   if (window.Notification && Notification.permission === 'default') document.body.addEventListener('click', () => Notification.requestPermission(), { once: true });
-  // Login fica guardado no aparelho. A permissão do Google vence em 1 hora e o iPhone só deixa
-  // renová-la num toque: então o primeiro toque depois de vencer renova sozinho (a janelinha do
-  // Google abre e fecha sem pedir nada) e já sincroniza.
-  document.addEventListener('click', () => {
-    if (!conta || sincronizando || (token && Date.now() < tokenVence - 60000) || !temCliente()) return;
-    if (Date.now() - (window._ultimaRenovacao || 0) < 30000) return;
-    window._ultimaRenovacao = Date.now();
-    pedirToken(true).then(() => sincronizar(false)).catch(() => { });
-  }, true);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
   verificarAvisos();
 }
