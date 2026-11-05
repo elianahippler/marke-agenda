@@ -133,3 +133,14 @@ main { flex: 1; overflow-y: auto; overflow-x: hidden; width: 100%; -webkit-overf
 .aviso b { display: block; font-size: 16px; margin: 2px 0 8px; }
 .aviso .linha-botoes { display: flex; gap: 8px; } .aviso .linha-botoes button { flex: 1; padding: 9px; border-radius: 10px; background: var(--fundo); border: 1px solid var(--linha); }
 .aviso .linha-botoes button.ok { background: var(--azul); border-color: var(--azul); }
+
+/* tarefa que começou antes e ainda está correndo neste horário */
+.seguindo {
+  padding: 6px 10px;
+  margin: 2px 0;
+  border-radius: 8px;
+  background: var(--painel);
+  color: var(--fraco);
+  font-size: 13px;
+  opacity: .85;
+}

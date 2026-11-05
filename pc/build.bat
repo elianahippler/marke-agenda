@@ -6,7 +6,7 @@ rem   Instalar Marke Agenda.exe    - instalador unico (leva o programa dentro)
 cd /d "%~dp0"
 set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 set REFS=/reference:System.Web.Extensions.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Security.dll
-set FONTES=Modelo.cs Usuarios.cs Integracoes.cs Tela.cs Dialogos.cs Lembrete.cs Escuros.cs Sincronia.cs Google.cs
+set FONTES=Modelo.cs Usuarios.cs Integracoes.cs Tela.cs Dialogos.cs DialogosNovos.cs Lembrete.cs Escuros.cs Sincronia.cs Google.cs
 
 "%CSC%" /nologo /codepage:65001 /target:winexe /optimize+ /win32icon:marke-agenda.ico /main:MarkeAgenda.Programa /out:"Marke Agenda.exe" %REFS% %FONTES%
 if errorlevel 1 (echo. & echo FALHOU A COMPILACAO & exit /b 1)

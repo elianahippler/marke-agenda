@@ -80,7 +80,7 @@ namespace MarkeAgenda
             y += 34;
 
             // quando
-            Rotulo(this, "Dia, horário e duração (minutos)");
+            Rotulo(this, "Dia, das ... às ...");
             DataEscura data = new DataEscura { Width = 130, Location = new Point(X, y - 2), TextoVazio = "Sem dia" };
             DateTime dt;
             if (!string.IsNullOrEmpty(t.Data) && DateTime.TryParse(t.Data, out dt)) { data.Value = dt; data.Checked = true; }
@@ -89,14 +89,18 @@ namespace MarkeAgenda
             hora.Items.Add("");
             for (int m = d.Config.HoraInicio * 60; m <= d.Config.HoraFim * 60; m += Math.Max(5, d.Config.Intervalo)) hora.Items.Add((m / 60).ToString("00") + ":" + (m % 60).ToString("00"));
             hora.Text = t.Hora ?? "";
-            NumericUpDown dur = new NumericUpDown { Width = 80, Location = new Point(X + 260, y), Minimum = 0, Maximum = 1440, Increment = 15, Value = Math.Max(0, Math.Min(1440, t.Duracao)) };
-            Controls.AddRange(new Control[] { data, hora, dur });
+            Label lAteH = new Label { Text = "às", AutoSize = true, Location = new Point(X + 253, y + 4), ForeColor = Tema.Fraco };
+            ComboBox horaFim = new ComboBox { Width = 100, Location = new Point(X + 278, y), DropDownStyle = ComboBoxStyle.DropDown };
+            horaFim.Items.Add("");
+            for (int m = d.Config.HoraInicio * 60; m <= d.Config.HoraFim * 60; m += Math.Max(5, d.Config.Intervalo)) horaFim.Items.Add((m / 60).ToString("00") + ":" + (m % 60).ToString("00"));
+            horaFim.Text = HoraFinal(t);
+            Controls.AddRange(new Control[] { data, hora, lAteH, horaFim });
             y += 36;
 
             // repetição
             Rotulo(this, "Repetir");
-            string[] codigos = { "", "diaria", "uteis", "semanal", "mensal" };
-            string[] nomes = { "Não repete", "Todo dia", "Dias úteis", "Toda semana", "Todo mês" };
+            string[] codigos = { "", "diaria", "uteis", "semanal", "mensal", "cada" };
+            string[] nomes = { "Não repete", "Todo dia", "Dias úteis", "Toda semana", "Todo mês", "A cada" };
             List<RadioButton> reps = new List<RadioButton>();
             // grupo próprio: sem isso, marcar a cor desmarcava a repetição (mesmo grupo de opções)
             Panel grupoRep = new Panel { Location = new Point(X, y), Size = new Size(Largura - 2 * X, 26) };
@@ -108,6 +112,19 @@ namespace MarkeAgenda
             }
             Controls.Add(grupoRep);
             y += 28;
+
+            // "A cada N dias/semanas/meses"
+            NumericUpDown cada = new NumericUpDown { Width = 60, Location = new Point(X, y), Minimum = 1, Maximum = 365, Value = Math.Max(1, Math.Min(365, t.Cada())) };
+            ComboBox cadaUn = new ComboBox { Width = 110, Location = new Point(X + 70, y), DropDownStyle = ComboBoxStyle.DropDownList };
+            cadaUn.Items.AddRange(new object[] { "dias", "semanas", "meses" });
+            cadaUn.SelectedIndex = (t.Repetir ?? "") == "cada-semana" ? 1 : (t.Repetir ?? "") == "cada-mes" ? 2 : 0;
+            Controls.Add(cada); Controls.Add(cadaUn);
+            RadioButton repCada = reps[reps.Count - 1];
+            repCada.Checked = (t.Repetir ?? "").StartsWith("cada-");
+            Action mostrarCada = () => { cada.Visible = cadaUn.Visible = repCada.Checked; };
+            foreach (RadioButton r in reps) r.CheckedChanged += (s, e) => mostrarCada();
+            mostrarCada();
+            y += 32;
             Label lAte = new Label { Text = "Repetir até", AutoSize = true, Location = new Point(X, y), ForeColor = Tema.Fraco };
             DataEscura ate = new DataEscura { Width = 130, Location = new Point(X + 100, y - 5), TextoVazio = "Sem fim" };
             if (!string.IsNullOrEmpty(t.RepetirAte) && DateTime.TryParse(t.RepetirAte, out dt)) { ate.Value = dt; ate.Checked = true; } else { ate.Value = dia.AddMonths(1); ate.Checked = false; }
@@ -146,6 +163,18 @@ namespace MarkeAgenda
                 if (h != "") h = th.ToString("HH:mm");
                 RadioButton rep = reps.FirstOrDefault(r => r.Checked);
                 string repetir = rep == null ? "" : (string)rep.Tag;   // nenhuma marcada = não repete
+                if (repetir == "cada") repetir = cadaUn.SelectedIndex == 1 ? "cada-semana" : cadaUn.SelectedIndex == 2 ? "cada-mes" : "cada-dia";
+
+                int minutos = 0;
+                string hf = horaFim.Text.Trim();
+                if (hf != "")
+                {
+                    DateTime tf;
+                    if (!DateTime.TryParse("2000-01-01 " + hf, out tf)) { MessageBox.Show(this, "Hora final inválida. Use o formato 10:30."); horaFim.Focus(); return; }
+                    if (h == "") { MessageBox.Show(this, "Para ter hora final, a tarefa precisa de hora inicial."); hora.Focus(); return; }
+                    minutos = (int)(tf - th).TotalMinutes;
+                    if (minutos <= 0) { MessageBox.Show(this, "A hora final precisa ser depois da inicial."); horaFim.Focus(); return; }
+                }
                 if (repetir != "" && h == "") { MessageBox.Show(this, "Para repetir, a tarefa precisa de um horário."); hora.Focus(); return; }
 
                 t.Titulo = titulo.Text.Trim();
@@ -154,8 +183,9 @@ namespace MarkeAgenda
                 if (h != "" && !data.Checked) data.Checked = true;
                 string novaData = data.Checked ? Tarefa.Dia(data.Value) : "";
                 if (novaData != t.Data || h != t.Hora) { t.Avisado = false; t.AvisadoEm = null; }
-                t.Data = novaData; t.Hora = h; t.Duracao = (int)dur.Value;
-                t.Repetir = repetir; t.RepetirAte = repetir != "" && ate.Checked ? Tarefa.Dia(ate.Value) : "";
+                t.Data = novaData; t.Hora = h; t.Duracao = minutos;
+                t.Repetir = repetir; t.RepetirCada = repetir.StartsWith("cada-") ? (int)cada.Value : 0;
+                t.RepetirAte = repetir != "" && ate.Checked ? Tarefa.Dia(ate.Value) : "";
                 t.MarcarConcluida(dia, feita.Checked);
                 t.Aguardando = aguardo.Checked; t.AguardandoDe = aguardo.Checked ? de.Text.Trim() : "";
                 if (t.Aguardando && h != "") { t.Aguardando = false; }  // planejou um horário: sai do aguardo
@@ -165,6 +195,14 @@ namespace MarkeAgenda
             AcceptButton = null;
             Rodape(ok);
             Shown += (s, e) => titulo.Focus();
+        }
+
+        /// A hora em que a tarefa termina (início + duração), ou vazio se não tem.
+        static string HoraFinal(Tarefa t)
+        {
+            DateTime ini;
+            if (t.Duracao <= 0 || string.IsNullOrEmpty(t.Hora) || !DateTime.TryParse("2000-01-01 " + t.Hora, out ini)) return "";
+            return ini.AddMinutes(t.Duracao).ToString("HH:mm");
         }
     }
 
@@ -348,8 +386,11 @@ namespace MarkeAgenda
     // ------------------------------------------------------------------ eventos do dia
     public class DialogoEventos : DialogoBase
     {
+        Dados dados;
+
         public DialogoEventos(Dados d, DateTime dia) : base("Eventos (férias, atestado, feriado...)", 460)
         {
+            dados = d; d.AjeitarTiposEvento();
             Rotulo(this, "Eventos cadastrados (dois cliques para editar)");
             ListBox lb = Campo(this, null, new ListBox { DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 40, IntegralHeight = false }, 260);
             Func<List<EventoDia>> ordenados = () => d.Eventos.OrderByDescending(x => x.Inicio).ToList();
@@ -361,7 +402,8 @@ namespace MarkeAgenda
                 using (SolidBrush b = new SolidBrush(sel ? Tema.Linha : Tema.Painel)) e.Graphics.FillRectangle(b, e.Bounds);
                 using (SolidBrush b = new SolidBrush(Cores.De(ev.Cor))) e.Graphics.FillRectangle(b, e.Bounds.X + 6, e.Bounds.Y + 8, 6, e.Bounds.Height - 16);
                 TextRenderer.DrawText(e.Graphics, ev.Titulo(), Tema.Negrito, new Point(e.Bounds.X + 20, e.Bounds.Y + 3), Tema.Texto);
-                TextRenderer.DrawText(e.Graphics, Periodo(ev) + "  ·  " + EventoDia.NomeTipo(ev.Tipo), Tema.Pequena, new Point(e.Bounds.X + 20, e.Bounds.Y + 21), Tema.Fraco);
+                string det = Periodo(ev) + "  ·  " + dados.TipoEventoDe(ev.Tipo).Nome + (ev.DiaInteiro() ? "" : "  ·  " + ev.Faixa());
+                TextRenderer.DrawText(e.Graphics, det, Tema.Pequena, new Point(e.Bounds.X + 20, e.Bounds.Y + 21), Tema.Fraco);
             };
             Action recarregar = () => { lb.Items.Clear(); foreach (EventoDia ev in ordenados()) lb.Items.Add(ev.Id); };
             recarregar();
@@ -372,7 +414,8 @@ namespace MarkeAgenda
             y += 46;
             novo.Click += (s, e) =>
             {
-                EventoDia ev = new EventoDia { Id = Dados.NovoId(), Tipo = "ferias", Cor = EventoDia.CoresPadrao[0], Inicio = Tarefa.Dia(dia), Fim = Tarefa.Dia(dia) };
+                TipoEvento t0 = d.TiposEvento.FirstOrDefault() ?? new TipoEvento { Id = "outro", Nome = "Evento", Cor = "#64748B" };
+                EventoDia ev = new EventoDia { Id = Dados.NovoId(), Tipo = t0.Id, Cor = t0.Cor, Inicio = Tarefa.Dia(dia), Fim = Tarefa.Dia(dia) };
                 if (EditarEvento(ev, true)) { d.Eventos.Add(ev); recarregar(); }
             };
             Action edt = () => { if (lb.SelectedIndex >= 0 && EditarEvento(ordenados()[lb.SelectedIndex], false)) recarregar(); };
@@ -406,13 +449,11 @@ namespace MarkeAgenda
             {
                 int yy = 14;
                 Label l1 = new Label { Text = "Tipo", Location = new Point(16, yy), AutoSize = true, ForeColor = Tema.Fraco }; yy += 22;
-                List<RadioButton> rbs = new List<RadioButton>();
-                for (int i = 0; i < EventoDia.Tipos.Length; i++)
-                {
-                    RadioButton r = new RadioButton { Text = EventoDia.Nomes[i], AutoSize = true, Location = new Point(16 + (i % 3) * 120, yy + (i / 3) * 26), Tag = i, Checked = ev.Tipo == EventoDia.Tipos[i] };
-                    rbs.Add(r); f.Controls.Add(r);
-                }
-                yy += 60;
+                ComboBox tipo = new ComboBox { Location = new Point(16, yy), Width = 380, DropDownStyle = ComboBoxStyle.DropDownList };
+                foreach (TipoEvento t in dados.TiposEvento) tipo.Items.Add(t.Nome);
+                int iSel = dados.TiposEvento.FindIndex(t => t.Id == ev.Tipo);
+                tipo.SelectedIndex = iSel >= 0 ? iSel : 0;
+                yy += 38;
                 Label l2 = new Label { Text = "Nome (opcional)", Location = new Point(16, yy), AutoSize = true, ForeColor = Tema.Fraco }; yy += 20;
                 TextBox nome = new TextBox { Text = ev.Nome ?? "", Location = new Point(16, yy), Width = 380 }; yy += 38;
                 Label l3 = new Label { Text = "De", Location = new Point(16, yy + 6), AutoSize = true, ForeColor = Tema.Fraco };
@@ -423,31 +464,51 @@ namespace MarkeAgenda
                 if (DateTime.TryParse(ev.Inicio, out dt)) de.Value = dt;
                 if (!string.IsNullOrEmpty(ev.Fim) && ev.Fim != ev.Inicio && DateTime.TryParse(ev.Fim, out dt)) ate.Value = dt; else { ate.Value = de.Value; ate.Checked = false; }
                 yy += 44;
+
+                // o evento pode valer o dia inteiro ou só um pedaço dele
+                CheckBox comHora = new CheckBox { Text = "Só em parte do dia", AutoSize = true, Location = new Point(16, yy), Checked = !ev.DiaInteiro() };
+                yy += 26;
+                Label l6 = new Label { Text = "Das", Location = new Point(36, yy + 4), AutoSize = true, ForeColor = Tema.Fraco };
+                MaskedTextBox hIni = new MaskedTextBox { Mask = "00:00", Text = string.IsNullOrEmpty(ev.HoraInicio) ? "09:00" : ev.HoraInicio, Width = 70, Location = new Point(76, yy) };
+                Label l7 = new Label { Text = "às", Location = new Point(156, yy + 4), AutoSize = true, ForeColor = Tema.Fraco };
+                MaskedTextBox hFim = new MaskedTextBox { Mask = "00:00", Text = string.IsNullOrEmpty(ev.HoraFim) ? "12:00" : ev.HoraFim, Width = 70, Location = new Point(182, yy) };
+                Action verHoras = () => { l6.Visible = hIni.Visible = l7.Visible = hFim.Visible = comHora.Checked; };
+                comHora.CheckedChanged += (s, e) => verHoras();
+                yy += 40;
+
                 Label l5 = new Label { Text = "Cor", Location = new Point(16, yy + 6), AutoSize = true, ForeColor = Tema.Fraco };
                 Button cor = BotaoCor(Cores.De(ev.Cor)); cor.Location = new Point(46, yy);
-                foreach (RadioButton r in rbs)
+                tipo.SelectedIndexChanged += (s, e) =>
                 {
-                    RadioButton r0 = r;
-                    r.CheckedChanged += (s, e) => { if (r0.Checked) cor.BackColor = Cores.De(EventoDia.CoresPadrao[(int)r0.Tag]); };
-                }
+                    if (tipo.SelectedIndex >= 0) cor.BackColor = Cores.De(dados.TiposEvento[tipo.SelectedIndex].Cor);
+                };
                 yy += 46;
                 Button ok = Tema.Botao("Salvar", true); ok.Location = new Point(16, yy);
                 Button can = Tema.Botao("Cancelar", false); can.Location = new Point(110, yy); can.DialogResult = DialogResult.Cancel;
                 ok.Click += (s, e) =>
                 {
-                    RadioButton marcado = rbs.FirstOrDefault(r => r.Checked);
-                    if (marcado == null) { MessageBox.Show(f, "Escolha o tipo."); return; }
+                    if (tipo.SelectedIndex < 0) { MessageBox.Show(f, "Escolha o tipo."); return; }
                     if (!de.Checked) { MessageBox.Show(f, "Escolha o dia de início."); return; }
-                    DateTime fim = ate.Checked ? ate.Value : de.Value;
-                    if (fim < de.Value) { MessageBox.Show(f, "O fim precisa ser depois do início."); return; }
-                    ev.Tipo = EventoDia.Tipos[(int)marcado.Tag]; ev.Nome = nome.Text.Trim(); ev.Cor = Cores.Hex(cor.BackColor);
-                    ev.Inicio = Tarefa.Dia(de.Value); ev.Fim = Tarefa.Dia(fim);
+                    DateTime fimDia = ate.Checked ? ate.Value : de.Value;
+                    if (fimDia < de.Value) { MessageBox.Show(f, "O fim precisa ser depois do início."); return; }
+                    if (comHora.Checked)
+                    {
+                        int mi = Intervalo.Minutos(hIni.Text), mf = Intervalo.Minutos(hFim.Text);
+                        if (mi < 0 || mf < 0) { MessageBox.Show(f, "Horário inválido. Use o formato 09:00."); hIni.Focus(); return; }
+                        if (mf <= mi) { MessageBox.Show(f, "A hora final precisa ser depois da inicial."); hFim.Focus(); return; }
+                        ev.HoraInicio = hIni.Text; ev.HoraFim = hFim.Text;
+                    }
+                    else { ev.HoraInicio = ""; ev.HoraFim = ""; }
+                    ev.Tipo = dados.TiposEvento[tipo.SelectedIndex].Id;
+                    ev.Nome = nome.Text.Trim(); ev.Cor = Cores.Hex(cor.BackColor);
+                    ev.Inicio = Tarefa.Dia(de.Value); ev.Fim = Tarefa.Dia(fimDia);
+                    ev.Mod = Sincronia.Agora();
                     f.DialogResult = DialogResult.OK;
                 };
-                f.Controls.AddRange(new Control[] { l1, l2, nome, l3, de, l4, ate, l5, cor, ok, can });
+                f.Controls.AddRange(new Control[] { l1, tipo, l2, nome, l3, de, l4, ate, comHora, l6, hIni, l7, hFim, l5, cor, ok, can });
                 f.CancelButton = can;
                 f.ClientSize = new Size(420, yy + 50);
-                Tema.Aplicar(f); cor.BackColor = Cores.De(ev.Cor);
+                Tema.Aplicar(f); cor.BackColor = Cores.De(ev.Cor); verHoras();
                 return f.ShowDialog(this) == DialogResult.OK;
             }
         }
@@ -491,16 +552,22 @@ namespace MarkeAgenda
 
             CheckBox fimSemana = new CheckBox { Text = "Destacar sábado e domingo na agenda", AutoSize = true, Location = new Point(X, y), Checked = c.DestacarFimDeSemana };
             Controls.Add(fimSemana); y += 30;
-            CheckBox almoco = new CheckBox { Text = "Pausa de almoço (sem horários no meio)", AutoSize = true, Location = new Point(X, y), Checked = c.PausaAlmoco };
-            Controls.Add(almoco); y += 28;
-            Label lAlm = new Label { Text = "Das", AutoSize = true, Location = new Point(X + 20, y + 4), ForeColor = Tema.Fraco };
-            MaskedTextBox almIni = new MaskedTextBox { Mask = "00:00", Text = c.AlmocoInicio ?? "12:00", Width = 60, Location = new Point(X + 60, y) };
-            Label lAte2 = new Label { Text = "às", AutoSize = true, Location = new Point(X + 130, y + 4), ForeColor = Tema.Fraco };
-            MaskedTextBox almFim = new MaskedTextBox { Mask = "00:00", Text = c.AlmocoFim ?? "13:30", Width = 60, Location = new Point(X + 160, y) };
-            Controls.AddRange(new Control[] { lAlm, almIni, lAte2, almFim }); y += 40;
-            Action mostrarAlm = () => { lAlm.Visible = almIni.Visible = lAte2.Visible = almFim.Visible = almoco.Checked; };
-            mostrarAlm();
-            almoco.CheckedChanged += (s, e) => mostrarAlm();
+            // os intervalos fora da agenda ficam numa tela propria (o almoco e um deles)
+            Button intervalos = Tema.Botao("Intervalos fora da agenda...", false);
+            intervalos.AutoSize = false; intervalos.Width = 240; intervalos.Height = 30; intervalos.Location = new Point(X, y);
+            intervalos.Click += (s, e) => { using (DialogoIntervalos g = new DialogoIntervalos(d)) g.ShowDialog(this); };
+            new ToolTip().SetToolTip(intervalos, "Almoco, cafe, reuniao fixa: horarios que a agenda nao mostra");
+            Controls.Add(intervalos); y += 38;
+
+            Button tiposEv = Tema.Botao("Tipos de evento...", false);
+            tiposEv.AutoSize = false; tiposEv.Width = 240; tiposEv.Height = 30; tiposEv.Location = new Point(X, y);
+            tiposEv.Click += (s, e) => { using (DialogoTiposEvento g = new DialogoTiposEvento(d)) g.ShowDialog(this); };
+            new ToolTip().SetToolTip(tiposEv, "Aniversario, ferias, feriado: os tipos usados ao criar um evento");
+            Controls.Add(tiposEv); y += 38;
+
+            CheckBox verAguardo = new CheckBox { Text = "Mostrar a secao \"Em aguardo\"", AutoSize = true, Location = new Point(X, y), Checked = c.MostrarAguardando };
+            new ToolTip().SetToolTip(verAguardo, "Desmarcado: a coluna fica so com as tarefas fixas");
+            Controls.Add(verAguardo); y += 32;
 
             CheckBox aoAbrir = new CheckBox { Text = "Atualizar integrações ao abrir", AutoSize = true, Location = new Point(X, y), Checked = c.AtualizarAoAbrir };
             Controls.Add(aoAbrir); y += 28;
@@ -523,7 +590,11 @@ namespace MarkeAgenda
                 c.Intervalo = r15.Checked ? 15 : r60.Checked ? 60 : 30;
                 c.AvisarLembretes = avisar.Checked; c.AvisoAntesMin = (int)antes.Value; c.AvisoJanela = avJanela.Checked; c.AvisoSom = som.Checked; c.AvisarTodas = todas.Checked;
                 c.DestacarFimDeSemana = fimSemana.Checked;
-                c.PausaAlmoco = almoco.Checked; c.AlmocoInicio = almIni.Text; c.AlmocoFim = almFim.Text;
+            c.MostrarAguardando = verAguardo.Checked;
+            // mantem PausaAlmoco/AlmocoInicio/AlmocoFim em dia com o intervalo chamado almoco,
+            // para o celular e as versoes antigas continuarem entendendo
+            Intervalo alm = (d.Intervalos ?? new List<Intervalo>()).FirstOrDefault(x => x.Id == "almoco");
+            if (alm != null) { c.PausaAlmoco = alm.Ligado; c.AlmocoInicio = alm.Inicio; c.AlmocoFim = alm.Fim; }
                 c.AtualizarAoAbrir = aoAbrir.Checked; c.AtualizarMin = auto.Checked ? (int)cada.Value : 0;
                 DialogResult = DialogResult.OK;
             };

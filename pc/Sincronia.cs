@@ -18,6 +18,8 @@ namespace MarkeAgenda
         public List<Nota> Notas { get; set; }
         public List<Tipo> Tipos { get; set; }
         public List<EventoDia> Eventos { get; set; }
+        public List<Intervalo> Intervalos { get; set; }       // pedacos do dia fora da agenda
+        public List<TipoEvento> TiposEvento { get; set; }     // tipos usados pelos eventos
         public List<string> NaoSaoMinhas { get; set; }
         public Dictionary<string, List<string>> HorariosExtras { get; set; }
         public string NotaRapida { get; set; }
@@ -51,6 +53,8 @@ namespace MarkeAgenda
             foreach (Nota n in d.Notas) yield return new KeyValuePair<string, object>("n:" + n.Id, n);
             foreach (Tipo y in d.Tipos) yield return new KeyValuePair<string, object>("y:" + y.Id, y);
             foreach (EventoDia e in d.Eventos) yield return new KeyValuePair<string, object>("e:" + e.Id, e);
+            foreach (Intervalo i in d.Intervalos ?? new List<Intervalo>()) yield return new KeyValuePair<string, object>("i:" + i.Id, i);
+            foreach (TipoEvento t in d.TiposEvento ?? new List<TipoEvento>()) yield return new KeyValuePair<string, object>("v:" + t.Id, t);
         }
 
         /// Antes de gravar: carimba o que mudou e registra o que foi excluído.
@@ -122,6 +126,9 @@ namespace MarkeAgenda
             List<Tipo> tipos = Juntar(d.Tipos, r.Tipos, "y:", x => x.Id, x => x.Mod, d.Excluidos);
             if (tipos.Count > 0) d.Tipos = tipos;
             d.Eventos = Juntar(d.Eventos, r.Eventos, "e:", x => x.Id, x => x.Mod, d.Excluidos);
+            d.Intervalos = Juntar(d.Intervalos ?? new List<Intervalo>(), r.Intervalos, "i:", x => x.Id, x => x.Mod, d.Excluidos);
+            List<TipoEvento> tiposEv = Juntar(d.TiposEvento ?? new List<TipoEvento>(), r.TiposEvento, "v:", x => x.Id, x => x.Mod, d.Excluidos);
+            if (tiposEv.Count > 0) d.TiposEvento = tiposEv;
             foreach (string k in r.NaoSaoMinhas ?? new List<string>()) if (!d.NaoSaoMinhas.Contains(k)) d.NaoSaoMinhas.Add(k);
             foreach (KeyValuePair<string, List<string>> kv in r.HorariosExtras ?? new Dictionary<string, List<string>>())
             {
@@ -142,13 +149,15 @@ namespace MarkeAgenda
             {
                 Versao = 1, Gravado = Agora(), Dispositivo = "PC " + Environment.MachineName,
                 Tarefas = d.Tarefas, Notas = d.Notas, Tipos = d.Tipos, Eventos = d.Eventos,
+                Intervalos = d.Intervalos, TiposEvento = d.TiposEvento,
                 NaoSaoMinhas = d.NaoSaoMinhas, HorariosExtras = d.HorariosExtras,
                 NotaRapida = d.NotaRapida, NotaRapidaMod = d.NotaRapidaMod, Excluidos = d.Excluidos,
                 Agenda = new Dictionary<string, object>
                 {
                     { "HoraInicio", c.HoraInicio }, { "HoraFim", c.HoraFim }, { "Intervalo", c.Intervalo },
                     { "PausaAlmoco", c.PausaAlmoco }, { "AlmocoInicio", c.AlmocoInicio }, { "AlmocoFim", c.AlmocoFim },
-                    { "DestacarFimDeSemana", c.DestacarFimDeSemana }, { "AvisoAntesMin", c.AvisoAntesMin }
+                    { "DestacarFimDeSemana", c.DestacarFimDeSemana }, { "AvisoAntesMin", c.AvisoAntesMin },
+                    { "MostrarAguardando", c.MostrarAguardando }
                 }
             };
             return Json().Serialize(p);

@@ -32,7 +32,7 @@ namespace MarkeAgenda
         public string Link { get; set; }
         public string Data { get; set; }     // yyyy-MM-dd
         public string Hora { get; set; }     // HH:mm
-        public int Duracao { get; set; }     // minutos
+        public int Duracao { get; set; }     // minutos (a hora final sai daqui)
         public bool Concluida { get; set; }
         public bool Avisado { get; set; }
         public string Criada { get; set; }
@@ -40,8 +40,10 @@ namespace MarkeAgenda
 
         // Repetição: "" (não repete), "diaria", "uteis", "semanal", "mensal"
         public string Repetir { get; set; }
+        public int RepetirCada { get; set; }            // de quantos em quantos (só nas repetições "cada-*")
         public string RepetirAte { get; set; }          // yyyy-MM-dd ou vazio
         public List<string> ConcluidasEm { get; set; }  // dias concluídos de uma tarefa que repete
+        public List<string> ExcluidasEm { get; set; }   // dias em que esta ocorrência foi removida
         public string AvisadoEm { get; set; }           // último dia em que o aviso saiu
         public string SonecaAte { get; set; }           // adiado: avisar de novo neste momento
         public bool Aguardando { get; set; }            // em aguardo: depende de terceiros
@@ -71,9 +73,30 @@ namespace MarkeAgenda
                 case "diaria": return true;
                 case "uteis": return dia.DayOfWeek != DayOfWeek.Saturday && dia.DayOfWeek != DayOfWeek.Sunday;
                 case "semanal": return dia.DayOfWeek == ini.DayOfWeek;
-                case "mensal": return dia.Day == ini.Day || (ini.Day > DateTime.DaysInMonth(dia.Year, dia.Month) && dia.Day == DateTime.DaysInMonth(dia.Year, dia.Month));
+                case "mensal": return MesmoDiaDoMes(ini, dia);
+                case "cada-dia": return (dia - ini).Days % Cada() == 0;
+                case "cada-semana": return dia.DayOfWeek == ini.DayOfWeek && ((dia - ini).Days / 7) % Cada() == 0;
+                case "cada-mes": return MesmoDiaDoMes(ini, dia) && (((dia.Year - ini.Year) * 12 + dia.Month - ini.Month) % Cada() == 0);
             }
             return false;
+        }
+
+        /// De quantos em quantos a tarefa repete (mínimo 1).
+        public int Cada() { return RepetirCada > 1 ? RepetirCada : 1; }
+
+        /// Mesmo dia do mês, segurando o fim de mês curto (dia 31 cai no dia 30, 28...).
+        static bool MesmoDiaDoMes(DateTime ini, DateTime dia)
+        {
+            int ultimo = DateTime.DaysInMonth(dia.Year, dia.Month);
+            return dia.Day == ini.Day || (ini.Day > ultimo && dia.Day == ultimo);
+        }
+
+        /// Tira só a ocorrência deste dia, deixando o resto da repetição de pé.
+        public void ExcluirSo(DateTime dia)
+        {
+            if (ExcluidasEm == null) ExcluidasEm = new List<string>();
+            string k = Dia(dia);
+            if (!ExcluidasEm.Contains(k)) ExcluidasEm.Add(k);
         }
 
         public bool ConcluidaEm(DateTime dia)
@@ -91,16 +114,49 @@ namespace MarkeAgenda
             if (feita) ConcluidasEm.Add(k);
         }
 
-        public static string NomeRepeticao(string r)
+        public static string NomeRepeticao(string r) { return NomeRepeticao(r, 1); }
+
+        public static string NomeRepeticao(string r, int cada)
         {
+            if (cada < 2) cada = 1;
             switch (r)
             {
                 case "diaria": return "Todo dia";
                 case "uteis": return "Dias úteis";
                 case "semanal": return "Toda semana";
                 case "mensal": return "Todo mês";
+                case "cada-dia": return cada == 1 ? "Todo dia" : "A cada " + cada + " dias";
+                case "cada-semana": return cada == 1 ? "Toda semana" : "A cada " + cada + " semanas";
+                case "cada-mes": return cada == 1 ? "Todo mês" : "A cada " + cada + " meses";
             }
             return "";
+        }
+
+        /// O texto da repetição desta tarefa, já com o "de quantos em quantos".
+        public string NomeDaRepeticao() { return NomeRepeticao(Repetir, Cada()); }
+
+        /// A repetição por extenso, dizendo em que dia ela cai ("Todo mês, no dia 5").
+        public string DetalheRepeticao()
+        {
+            DateTime ini;
+            if (!DateTime.TryParse(Data ?? "", out ini)) return NomeDaRepeticao();
+            if (Repetir == "mensal" || Repetir == "cada-mes") return NomeDaRepeticao() + ", no dia " + ini.Day;
+            if (Repetir == "semanal" || Repetir == "cada-semana") return NomeDaRepeticao() + ", " + DiaDaSemana(ini.DayOfWeek);
+            return NomeDaRepeticao();
+        }
+
+        static string DiaDaSemana(DayOfWeek d)
+        {
+            switch (d)
+            {
+                case DayOfWeek.Sunday: return "domingo";
+                case DayOfWeek.Monday: return "segunda-feira";
+                case DayOfWeek.Tuesday: return "terça-feira";
+                case DayOfWeek.Wednesday: return "quarta-feira";
+                case DayOfWeek.Thursday: return "quinta-feira";
+                case DayOfWeek.Friday: return "sexta-feira";
+            }
+            return "sábado";
         }
     }
 
@@ -122,7 +178,14 @@ namespace MarkeAgenda
         public string Cor { get; set; }
         public string Inicio { get; set; }   // yyyy-MM-dd
         public string Fim { get; set; }      // yyyy-MM-dd (igual ao início se for um dia só)
+        public string HoraInicio { get; set; }   // HH:mm, vazio = o dia inteiro
+        public string HoraFim { get; set; }      // HH:mm
         public string Mod { get; set; }
+
+        public bool DiaInteiro() { return string.IsNullOrEmpty(HoraInicio) || string.IsNullOrEmpty(HoraFim); }
+
+        /// "09:00 às 11:00" quando tem horário; vazio quando é o dia inteiro.
+        public string Faixa() { return DiaInteiro() ? "" : HoraInicio + " às " + HoraFim; }
 
         public static readonly string[] Tipos = { "ferias", "atestado", "feriado", "folga", "outro" };
         public static readonly string[] Nomes = { "Férias", "Atestado", "Feriado", "Folga", "Outro" };
@@ -130,6 +193,42 @@ namespace MarkeAgenda
 
         public string Titulo() { return string.IsNullOrEmpty(Nome) ? NomeTipo(Tipo) : Nome; }
         public static string NomeTipo(string t) { int i = Array.IndexOf(Tipos, t); return i < 0 ? "Evento" : Nomes[i]; }
+    }
+
+    /// Pedaço do dia que não aparece na agenda: almoço, café, reunião fixa...
+    public class Intervalo
+    {
+        public string Id { get; set; }
+        public string Nome { get; set; }
+        public string Inicio { get; set; }   // HH:mm
+        public string Fim { get; set; }      // HH:mm
+        public bool Ligado { get; set; }
+        public string Mod { get; set; }
+
+        public int MinInicio() { return Minutos(Inicio); }
+        public int MinFim() { return Minutos(Fim); }
+        public bool Vale() { return Ligado && MinInicio() >= 0 && MinFim() > MinInicio(); }
+
+        /// Este horário (em minutos desde a meia-noite) cai dentro do intervalo?
+        public bool Pega(int min) { return Vale() && min > MinInicio() && min < MinFim(); }
+
+        public static int Minutos(string hhmm)
+        {
+            if (string.IsNullOrEmpty(hhmm)) return -1;
+            string[] p = hhmm.Split(':');
+            int h, m;
+            if (p.Length != 2 || !int.TryParse(p[0], out h) || !int.TryParse(p[1], out m)) return -1;
+            return h * 60 + m;
+        }
+    }
+
+    /// Tipo de evento que a pessoa cadastra: aniversário, férias, feriado...
+    public class TipoEvento
+    {
+        public string Id { get; set; }      // o mesmo "Tipo" gravado no EventoDia
+        public string Nome { get; set; }
+        public string Cor { get; set; }
+        public string Mod { get; set; }
     }
 
     public class Acesso
@@ -154,7 +253,8 @@ namespace MarkeAgenda
         public bool AvisoJanela { get; set; }   // janela por cima de tudo (senão, balão do Windows)
         public bool AvisoSom { get; set; }
         public bool AvisarTodas { get; set; }   // toda tarefa com horário avisa (senão, só os tipos marcados)
-        public bool PausaAlmoco { get; set; }
+        public bool PausaAlmoco { get; set; }          // antigo: virou o primeiro item de Intervalos
+        public bool MostrarAguardando { get; set; }    // exibir a seção "Aguardando" na tela
         public bool DestacarFimDeSemana { get; set; }
         public bool InicioConfigurado { get; set; }   // já ligou "abrir com o Windows" e "fechar para segundo plano" uma vez
         public string AlmocoInicio { get; set; }
@@ -192,7 +292,7 @@ namespace MarkeAgenda
         {
             HoraInicio = 8; HoraFim = 18; Intervalo = 30;
             AvisarLembretes = true; AvisoAntesMin = 5; AvisoJanela = true; AvisoSom = true; AvisarTodas = true;
-            PausaAlmoco = true; DestacarFimDeSemana = true; AlmocoInicio = "12:00"; AlmocoFim = "13:30"; AtualizarMin = 15; AtualizarAoAbrir = true;
+            PausaAlmoco = true; MostrarAguardando = true; DestacarFimDeSemana = true; AlmocoInicio = "12:00"; AlmocoFim = "13:30"; AtualizarMin = 15; AtualizarAoAbrir = true;
             TipoGoogle = "evento"; TipoTomTicket = "chamado"; TipoMarkedesk = "atendimento";
             GoogleAgendaId = "primary"; TomSituacoes = "0,1,2,3,6,7";
         }
@@ -213,6 +313,8 @@ namespace MarkeAgenda
         public event Action Salvou;   // avisa a tela para sincronizar com o celular
         public Dictionary<string, List<string>> HorariosExtras { get; set; }   // dia (yyyy-MM-dd) -> horários a mais só naquele dia
         public List<EventoDia> Eventos { get; set; }                            // férias, atestado, feriado...
+        public List<Intervalo> Intervalos { get; set; }                         // pedaços do dia fora da agenda
+        public List<TipoEvento> TiposEvento { get; set; }                       // tipos de evento cadastrados
         public List<string> NaoSaoMinhas { get; set; }                          // "Origem:Ref" que não voltam ao atualizar
 
         public List<EventoDia> EventosEm(DateTime dia)
@@ -294,7 +396,53 @@ namespace MarkeAgenda
                 d.Tipos.Add(new Tipo { Id = "chamado", Nome = "Chamado TomTicket", Cor = "#10B981", Avisar = false });
                 d.Tipos.Add(new Tipo { Id = "atendimento", Nome = "Atendimento Markedesk", Cor = "#EC4899", Avisar = false });
             }
+            d.AjeitarIntervalos();
+            d.AjeitarTiposEvento();
             return d;
+        }
+
+        /// Primeira vez com intervalos: a pausa de almoço que já existia vira o primeiro da lista.
+        public void AjeitarIntervalos()
+        {
+            if (Intervalos == null) Intervalos = new List<Intervalo>();
+            if (Intervalos.Count > 0) return;
+            Intervalos.Add(new Intervalo
+            {
+                Id = "almoco",
+                Nome = "Almoço",
+                Inicio = string.IsNullOrEmpty(Config.AlmocoInicio) ? "12:00" : Config.AlmocoInicio,
+                Fim = string.IsNullOrEmpty(Config.AlmocoFim) ? "13:30" : Config.AlmocoFim,
+                Ligado = Config.PausaAlmoco,
+            });
+        }
+
+        /// Os tipos de evento que já eram fixos no código viram cadastro, e a pessoa pode criar outros.
+        public void AjeitarTiposEvento()
+        {
+            if (TiposEvento == null) TiposEvento = new List<TipoEvento>();
+            if (TiposEvento.Count > 0) return;
+            for (int i = 0; i < EventoDia.Tipos.Length; i++)
+                TiposEvento.Add(new TipoEvento { Id = EventoDia.Tipos[i], Nome = EventoDia.Nomes[i], Cor = EventoDia.CoresPadrao[i] });
+            TiposEvento.Insert(0, new TipoEvento { Id = "aniversario", Nome = "Aniversário", Cor = "#F472B6" });
+        }
+
+        /// O tipo de evento cadastrado, ou um genérico quando o tipo sumiu.
+        public TipoEvento TipoEventoDe(string id)
+        {
+            TipoEvento t = (TiposEvento ?? new List<TipoEvento>()).FirstOrDefault(x => x.Id == id);
+            return t ?? new TipoEvento { Id = id, Nome = EventoDia.NomeTipo(id), Cor = "#64748B" };
+        }
+
+        /// Os intervalos que valem (ligados e com horário certo).
+        public List<Intervalo> IntervalosAtivos()
+        {
+            return (Intervalos ?? new List<Intervalo>()).Where(i => i.Vale()).ToList();
+        }
+
+        /// Este horário cai em algum intervalo que não aparece na agenda?
+        public bool EmIntervalo(int minutos)
+        {
+            return IntervalosAtivos().Any(i => i.Pega(minutos));
         }
 
         public void Salvar()

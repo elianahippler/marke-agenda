@@ -11,7 +11,7 @@ const ESCOPOS = 'openid email profile https://www.googleapis.com/auth/drive.appd
 const ARQUIVO = 'marke-agenda.json';
 
 // ---------------------------------------------------------------- estado
-const vazio = () => ({ Tarefas: [], Notas: [], Tipos: [], Eventos: [], NaoSaoMinhas: [], HorariosExtras: {},
+const vazio = () => ({ Tarefas: [], Notas: [], Tipos: [], Eventos: [], Intervalos: [], TiposEvento: [], NaoSaoMinhas: [], HorariosExtras: {},
   NotaRapida: '', NotaRapidaMod: '', Excluidos: {}, Agenda: {} });
 let D = carregar('ma_dados') || vazio();
 let assin = carregar('ma_assin') || {};
@@ -21,6 +21,7 @@ let token = null, tokenVence = 0, clienteToken = null;
 let dia = hoje();
 let aba = 'agenda';
 let filtroTarefas = 'sem';
+let filtroFixas = '';   // tipo escolhido no filtro das tarefas fixas ('' = todos)
 let sincronizando = false, ultimaSinc = localStorage.getItem('ma_ultima') || '';
 
 function carregar(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
@@ -34,6 +35,7 @@ function gravarLocal() {
 // ---------------------------------------------------------------- datas
 function hoje() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
 function chave(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function fmtDia(d) { return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear(); }
 function deChave(s) { const p = (s || '').split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
 function maisDias(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function minutos(hhmm) { const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || ''); return m ? +m[1] * 60 + +m[2] : -1; }
@@ -48,6 +50,7 @@ function agendada(t) { return !!t.Data && !!t.Hora; }
 function repete(t) { return !!t.Repetir; }
 function ocorreEm(t, d) {
   if (t.Fixa || t.NaLixeira || !agendada(t)) return false;
+  if ((t.ExcluidasEm || []).includes(chave(d))) return false;   // "remover so esta"
   const ini = deChave(t.Data);
   if (!repete(t)) return chave(d) === t.Data;
   if (d < ini) return false;
@@ -57,12 +60,23 @@ function ocorreEm(t, d) {
     case 'diaria': return true;
     case 'uteis': return dw !== 0 && dw !== 6;
     case 'semanal': return dw === ini.getDay();
-    case 'mensal': {
-      const ult = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-      return d.getDate() === ini.getDate() || (ini.getDate() > ult && d.getDate() === ult);
-    }
+    case 'mensal': return mesmoDiaDoMes(ini, d);
+    case 'cada-dia': return diasEntre(ini, d) % cada(t) === 0;
+    case 'cada-semana': return dw === ini.getDay() && Math.floor(diasEntre(ini, d) / 7) % cada(t) === 0;
+    case 'cada-mes': return mesmoDiaDoMes(ini, d)
+      && (((d.getFullYear() - ini.getFullYear()) * 12 + d.getMonth() - ini.getMonth()) % cada(t) === 0);
   }
   return false;
+}
+function cada(t) { return t.RepetirCada > 1 ? t.RepetirCada : 1; }
+function diasEntre(a, b) { return Math.round((b - a) / 86400000); }
+function mesmoDiaDoMes(ini, d) {
+  const ult = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  return d.getDate() === ini.getDate() || (ini.getDate() > ult && d.getDate() === ult);
+}
+function excluirSo(t, d) {
+  t.ExcluidasEm = t.ExcluidasEm || [];
+  if (!t.ExcluidasEm.includes(chave(d))) t.ExcluidasEm.push(chave(d));
 }
 function concluidaEm(t, d) { return repete(t) ? (t.ConcluidasEm || []).includes(chave(d)) : !!t.Concluida; }
 function marcarConcluida(t, d, feita) {
@@ -72,33 +86,85 @@ function marcarConcluida(t, d, feita) {
 }
 function tipoDe(t) { return D.Tipos.find(x => x.Id === t.TipoId) || D.Tipos[0] || { Nome: 'Tarefa', Cor: '#0EA5E9' }; }
 function corDe(t) { return t.Cor || tipoDe(t).Cor || '#0EA5E9'; }
-function nomeRepeticao(r) { return { diaria: 'Todo dia', uteis: 'Dias úteis', semanal: 'Toda semana', mensal: 'Todo mês' }[r] || ''; }
+function nomeRepeticao(r, n = 1) {
+  const q = n > 1 ? n : 1;
+  switch (r) {
+    case 'diaria': return 'Todo dia';
+    case 'uteis': return 'Dias úteis';
+    case 'semanal': return 'Toda semana';
+    case 'mensal': return 'Todo mês';
+    case 'cada-dia': return q === 1 ? 'Todo dia' : 'A cada ' + q + ' dias';
+    case 'cada-semana': return q === 1 ? 'Toda semana' : 'A cada ' + q + ' semanas';
+    case 'cada-mes': return q === 1 ? 'Todo mês' : 'A cada ' + q + ' meses';
+  }
+  return '';
+}
+/** A repetição por extenso, dizendo em que dia ela cai ("Todo mês, no dia 5"). */
+function detalheRepeticao(t) {
+  const nome = nomeRepeticao(t.Repetir, cada(t));
+  if (!t.Data) return nome;
+  const ini = deChave(t.Data);
+  if (t.Repetir === 'mensal' || t.Repetir === 'cada-mes') return nome + ', no dia ' + ini.getDate();
+  if (t.Repetir === 'semanal' || t.Repetir === 'cada-semana') return nome + ', ' + DIAS[ini.getDay()];
+  return nome;
+}
 function atrasada(t, d) {
   if (!agendada(t) || concluidaEm(t, d)) return false;
   const fim = new Date(d); const m = minutos(t.Hora); fim.setHours(0, m + (t.Duracao > 0 ? t.Duracao : (A().Intervalo || 30)), 0, 0);
   return fim < new Date();
 }
-function A() { return Object.assign({ HoraInicio: 8, HoraFim: 18, Intervalo: 30, PausaAlmoco: true, AlmocoInicio: '12:00', AlmocoFim: '13:30', DestacarFimDeSemana: true, AvisoAntesMin: 5 }, D.Agenda || {}); }
+function A() { return Object.assign({ HoraInicio: 8, HoraFim: 18, Intervalo: 30, PausaAlmoco: true, AlmocoInicio: '12:00', AlmocoFim: '13:30', DestacarFimDeSemana: true, MostrarAguardando: true, AvisoAntesMin: 5 }, D.Agenda || {}); }
+/** Intervalos fora da agenda (almoço, café...). Sem nenhum, usa a pausa de almoço antiga. */
+function intervalos() {
+  const l = (D.Intervalos || []).filter(i => i.Ligado && minutos(i.Inicio) >= 0 && minutos(i.Fim) > minutos(i.Inicio));
+  if (l.length) return l;
+  const a = A();
+  return a.PausaAlmoco && minutos(a.AlmocoFim) > minutos(a.AlmocoInicio)
+    ? [{ Nome: 'Almoço', Inicio: a.AlmocoInicio, Fim: a.AlmocoFim, Ligado: true }] : [];
+}
+function emIntervalo(m) { return intervalos().some(i => m > minutos(i.Inicio) && m < minutos(i.Fim)); }
 function horarios(d) {
-  const a = A(), passo = a.Intervalo > 0 ? a.Intervalo : 30, ai = minutos(a.AlmocoInicio), af = minutos(a.AlmocoFim);
+  const a = A(), passo = a.Intervalo > 0 ? a.Intervalo : 30;
   let r = [];
   for (let m = a.HoraInicio * 60; m <= a.HoraFim * 60; m += passo) {
-    if (a.PausaAlmoco && ai >= 0 && af > ai && m > ai && m < af) continue;
+    if (emIntervalo(m)) continue;
     r.push(hhmm(m));
   }
-  if (a.PausaAlmoco && af > 0 && af <= a.HoraFim * 60) r.push(hhmm(af));
+  // a volta de cada intervalo vira um horário, para o dia não ficar com buraco
+  for (const i of intervalos()) {
+    const fim = minutos(i.Fim);
+    if (fim > 0 && fim <= a.HoraFim * 60 && !emIntervalo(fim)) r.push(hhmm(fim));
+  }
   r = r.concat((D.HorariosExtras || {})[chave(d)] || []);
   return [...new Set(r)].sort();
 }
 function horarioDe(hora, hs) { let x = hs[0]; for (const h of hs) if (h <= hora) x = h; return x; }
+/** A hora em que a tarefa termina (início + duração). */
+function fimDe(t) { return t.Duracao > 0 && t.Hora ? hhmm(minutos(t.Hora) + t.Duracao) : ''; }
+/** A tarefa começou num horário anterior e ainda está correndo neste? */
+function atravessa(t, h, hs) {
+  if (!(t.Duracao > 0) || !t.Hora) return false;
+  if (horarioDe(t.Hora, hs) === h) return false;
+  const m = minutos(h), mi = minutos(t.Hora);
+  return m > mi && m < mi + t.Duracao;
+}
 function eventosEm(d) { const k = chave(d); return (D.Eventos || []).filter(e => e.Inicio <= k && (e.Fim || e.Inicio) >= k); }
-function nomeEvento(e) { return e.Nome || { ferias: 'Férias', atestado: 'Atestado', feriado: 'Feriado', folga: 'Folga', outro: 'Outro' }[e.Tipo] || 'Evento'; }
+function tipoEventoDe(id) {
+  return (D.TiposEvento || []).find(x => x.Id === id)
+    || { Id: id, Nome: { ferias: 'Férias', atestado: 'Atestado', feriado: 'Feriado', folga: 'Folga', outro: 'Outro', aniversario: 'Aniversário' }[id] || 'Evento', Cor: '#64748B' };
+}
+function nomeEvento(e) { return e.Nome || tipoEventoDe(e.Tipo).Nome; }
+function diaInteiro(e) { return !e.HoraInicio || !e.HoraFim; }
+function faixaEvento(e) { return diaInteiro(e) ? '' : e.HoraInicio + ' às ' + e.HoraFim; }
+function tituloEvento(e) { const f = faixaEvento(e); return nomeEvento(e) + (f ? ' (' + f + ')' : ''); }
 
 // ---------------------------------------------------------------- sincronização (mesma lógica do PC)
 function itens() {
   const r = [];
   D.Tarefas.forEach(x => r.push(['t:' + x.Id, x])); D.Notas.forEach(x => r.push(['n:' + x.Id, x]));
   D.Tipos.forEach(x => r.push(['y:' + x.Id, x])); D.Eventos.forEach(x => r.push(['e:' + x.Id, x]));
+  (D.Intervalos || []).forEach(x => r.push(['i:' + x.Id, x]));
+  (D.TiposEvento || []).forEach(x => r.push(['v:' + x.Id, x]));
   return r;
 }
 function sig(x) { return JSON.stringify(Object.assign({}, x, { Mod: null })); }
@@ -245,7 +311,7 @@ function cartao(t, naAgenda) {
   else if (t.Aguardando) sub = 'Aguardando' + (t.AguardandoDe ? ': ' + t.AguardandoDe : '');
   else if (naAgenda) sub = t.Hora + (t.Duracao > 0 ? ' (' + t.Duracao + 'min)' : '') + ' · ' + tipoDe(t).Nome;
   else sub = tipoDe(t).Nome + (t.Data ? ' · ' + t.Data.slice(8, 10) + '/' + t.Data.slice(5, 7) + (t.Hora ? ' ' + t.Hora : '') : '');
-  if (repete(t)) sub += ' · ↻ ' + nomeRepeticao(t.Repetir);
+  if (repete(t)) sub += ' · ↻ ' + detalheRepeticao(t);
   const atr = naAgenda && atrasada(t, dia);
   if (atr) sub = 'Atrasada · ' + sub;
   const selo = { Google: 'G', TomTicket: 'TT', Markedesk: 'MD' }[t.Origem];
@@ -282,7 +348,7 @@ function desenharAgenda(m, doDia) {
   const evs = eventosEm(dia), fds = A().DestacarFimDeSemana && (dia.getDay() === 0 || dia.getDay() === 6);
   const corDia = evs.length ? (evs[0].Cor || '#10B981') : fds ? '#64748B' : null;
   if (corDia) {
-    const f = el('div', 'faixa', esc(evs.length ? evs.map(nomeEvento).join(' · ') : (dia.getDay() === 6 ? 'Sábado' : 'Domingo')));
+    const f = el('div', 'faixa', esc(evs.length ? evs.map(tituloEvento).join(' · ') : (dia.getDay() === 6 ? 'Sábado' : 'Domingo')));
     f.style.borderColor = corDia; f.style.background = misturar(corDia, .35);
     m.appendChild(f);
     m.classList.add('dia-marcado'); m.style.setProperty('--listra', misturar(corDia, .25));
@@ -296,6 +362,12 @@ function desenharAgenda(m, doDia) {
     const cs = el('div', 'cartoes');
     const aqui = doDia.filter(t => horarioDe(t.Hora, hs) === h).sort((a, b) => a.Hora.localeCompare(b.Hora));
     aqui.forEach(t => cs.appendChild(cartao(t, true)));
+    // rabicho das que vieram do horário de cima
+    doDia.filter(t => atravessa(t, h, hs)).forEach(t => {
+      const c = el('div', 'seguindo', '↳ ' + esc(t.Titulo) + ' <span class="fraco pequeno">(até ' + fimDe(t) + ')</span>');
+      c.style.borderLeft = '3px solid ' + corDe(t);
+      cs.appendChild(c);
+    });
     if (!aqui.length) { const v = el('button', 'vazio', '+ toque para adicionar'); v.onclick = () => adicionarNoHorario(h); cs.appendChild(v); }
     else { const v = el('button', 'fraco pequeno', '+ adicionar'); v.style.textAlign = 'left'; v.onclick = () => adicionarNoHorario(h); cs.appendChild(v); }
     linha.appendChild(cs); m.appendChild(linha);
@@ -328,12 +400,28 @@ function desenharTarefas(m) {
 function desenharAguardo(m) {
   const fixas = D.Tarefas.filter(t => t.Fixa && !t.NaLixeira).sort((a, b) => a.Titulo.localeCompare(b.Titulo));
   m.appendChild(el('div', 'titulo-secao', 'Tarefas fixas <span class="fraco pequeno">toque para usar</span>'));
-  const lf = el('div', 'lista'); fixas.forEach(t => lf.appendChild(cartao(t, false))); m.appendChild(lf);
-  if (!fixas.length) m.appendChild(el('div', 'vazio-lista', 'Nenhuma tarefa fixa. Crie no computador ou salve uma tarefa como fixa.'));
-  const ag = D.Tarefas.filter(t => t.Aguardando && !t.Concluida && !t.Fixa && !t.NaLixeira);
-  m.appendChild(el('div', 'titulo-secao', 'Em aguardo <span class="fraco pequeno">' + ag.length + '</span>'));
-  const la = el('div', 'lista'); ag.forEach(t => la.appendChild(cartao(t, false))); m.appendChild(la);
-  if (!ag.length) m.appendChild(el('div', 'vazio-lista', 'Nada em aguardo.'));
+  // filtro por tipo: só aparece quando as fixas usam mais de um tipo
+  const tiposFixas = [...new Set(fixas.map(t => t.TipoId))];
+  if (tiposFixas.length > 1) {
+    const fl = el('div', 'filtros');
+    const bt = (k, nome) => {
+      const x = el('button', filtroFixas === k ? 'ativo' : '', nome);
+      x.onclick = () => { filtroFixas = k; desenhar(); };
+      fl.appendChild(x);
+    };
+    bt('', 'Todos');
+    tiposFixas.forEach(id => bt(id, (D.Tipos.find(y => y.Id === id) || { Nome: 'Tarefa' }).Nome));
+    m.appendChild(fl);
+  }
+  const vistas = filtroFixas ? fixas.filter(t => t.TipoId === filtroFixas) : fixas;
+  const lf = el('div', 'lista'); vistas.forEach(t => lf.appendChild(cartao(t, false))); m.appendChild(lf);
+  if (!vistas.length) m.appendChild(el('div', 'vazio-lista', 'Nenhuma tarefa fixa. Crie no computador ou salve uma tarefa como fixa.'));
+  if (A().MostrarAguardando !== false) {
+    const ag = D.Tarefas.filter(t => t.Aguardando && !t.Concluida && !t.Fixa && !t.NaLixeira);
+    m.appendChild(el('div', 'titulo-secao', 'Em aguardo <span class="fraco pequeno">' + ag.length + '</span>'));
+    const la = el('div', 'lista'); ag.forEach(t => la.appendChild(cartao(t, false))); m.appendChild(la);
+    if (!ag.length) m.appendChild(el('div', 'vazio-lista', 'Nada em aguardo.'));
+  }
 }
 
 function desenharNotas(m) {
@@ -437,6 +525,14 @@ function copiar(f) {
     Concluida: false, Avisado: false, Aguardando: false, Fixa: false, Criada: new Date().toISOString().slice(0, 16).replace('T', ' ') };
 }
 function naoEMinha(t) {
+  // tarefa que repete: ou tira só o dia que está na tela, ou a repetição inteira
+  if (repete(t) && !t.Fixa) {
+    const so = confirm('"' + t.Titulo + '" repete (' + detalheRepeticao(t) + ').'
+      + '\n\nOK: remover só a de ' + fmtDia(dia)
+      + '\nCancelar: remover todas as repetições');
+    if (so) { excluirSo(t, dia); gravarLocal(); desenhar(); return; }
+    if (!confirm('Mandar todas as repetições de "' + t.Titulo + '" para a Lixeira?')) return;
+  }
   if (t.Origem && t.Origem !== 'Manual' && t.Ref) { const k = t.Origem + ':' + t.Ref; if (!D.NaoSaoMinhas.includes(k)) D.NaoSaoMinhas.push(k); }
   t.NaLixeira = agoraISO(); gravarLocal(); desenhar();
 }
