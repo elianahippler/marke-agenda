@@ -272,7 +272,7 @@ namespace MarkeAgenda
                 if (!string.IsNullOrEmpty(t.Data) && DateTime.TryParse(t.Data, out dt))
                     sub += "  ·  " + dt.ToString("dd/MM") + (t.EstaAgendada() ? " " + t.Hora : "");
             }
-            if (t.Repete()) sub += "  ·  ↻ " + Tarefa.NomeRepeticao(t.Repetir);
+            if (t.Repete()) sub += "  ·  ↻ " + t.DetalheRepeticao();
             Color corSub = Tema.Fraco;
             if (atrasada) { sub = "Atrasada  ·  " + sub; corSub = Tema.Atraso; }
             bool lixo = realce && !t.Fixa;
@@ -338,7 +338,7 @@ namespace MarkeAgenda
         ProgressoDia barraProgresso;
         ListBox lista, listaAguardo, listaFixas;
         TextBox busca, notaRapida, rapida;
-        ComboBox filtroTipo;
+        ComboBox filtroTipo, filtroTipoFixas;
         RadioButton rbSemHorario, rbTodas, rbResolvidas;
         Button btAgenda, btNotas, btMax, btMais;
         Button escolher;
@@ -571,7 +571,7 @@ namespace MarkeAgenda
             btAtualizar.Click += (s, e) => AtualizarIntegracoes(true);
             btTipos.Click += (s, e) => { using (DialogoTipos f = new DialogoTipos(dados)) f.ShowDialog(this); dados.Salvar(); AtualizarTudo(); };
             btAcessos.Click += (s, e) => { using (DialogoAcessos f = new DialogoAcessos(dados)) f.ShowDialog(this); dados.Salvar(); };
-            btConfig.Click += (s, e) => { using (DialogoConfig f = new DialogoConfig(dados)) f.ShowDialog(this); dados.Salvar(); AjustarAutoAtualizar(); AtualizarTudo(); };
+            btConfig.Click += (s, e) => { using (DialogoConfig f = new DialogoConfig(dados)) f.ShowDialog(this); dados.Salvar(); AjustarAutoAtualizar(); AplicarAguardo(); AtualizarTudo(); };
             btMais.Click += (s, e) => MenuMais().Show(btMais, new Point(0, btMais.Height));
             tt.SetToolTip(btAtualizar, "Busca Google Agenda, TomTicket e Markedesk (F5)");
             tt.SetToolTip(btMais, "Mais opções e meu cadastro");
@@ -762,6 +762,8 @@ namespace MarkeAgenda
             Panel fixas = new Panel { Dock = DockStyle.Top, Height = 300, BackColor = Tema.Painel, Padding = new Padding(0, 0, 0, 10) };
             lbFixas = Titulo("Tarefas fixas");
             Label ladF = new Label { Text = "Arraste quantas vezes quiser: elas nunca saem daqui.", Dock = DockStyle.Top, Height = 22, ForeColor = Tema.Fraco, Font = Tema.Pequena };
+            filtroTipoFixas = new ComboBox { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList, BackColor = Tema.Fundo, ForeColor = Tema.Texto, FlatStyle = FlatStyle.Flat };
+            filtroTipoFixas.SelectedIndexChanged += (s, e) => PreencherLista();
             listaFixas = CriarLista(2);
             vazioFixas = new Label { Text = "Nenhuma tarefa fixa.\r\nArraste uma tarefa para cá\r\nou crie uma nova.", ForeColor = Tema.Fraco, TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, BackColor = Tema.Painel, AllowDrop = true };
             vazioFixas.DragOver += (s, e) => e.Effect = DragDropEffects.Copy;
@@ -769,10 +771,13 @@ namespace MarkeAgenda
             Button btNovaFixa = Tema.Botao("+ Nova tarefa fixa", false); btNovaFixa.Dock = DockStyle.Bottom; btNovaFixa.AutoSize = false; btNovaFixa.Height = 32;
             btNovaFixa.Click += (s, e) => NovaFixa(null);
             Panel linhaSep = new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = Tema.Linha };
-            foreach (Control c in new Control[] { vazioFixas, listaFixas, Espaco(4), ladF, lbFixas, btNovaFixa, Espaco(10), linhaSep }) fixas.Controls.Add(c);
+            foreach (Control c in new Control[] { vazioFixas, listaFixas, Espaco(4), filtroTipoFixas, ladF, lbFixas, btNovaFixa, Espaco(10), linhaSep }) fixas.Controls.Add(c);
             foreach (Control c in new Control[] { vazioAguardo, listaAguardo, Espaco(4), lad, lbAguardo, fixas, btNovaAg }) aguardo.Controls.Add(c);
             // meio a meio: metade de cima para as fixas, metade de baixo para Em aguardo
             aguardo.Resize += (s, e) => fixas.Height = Math.Max(160, (aguardo.ClientSize.Height - aguardo.Padding.Vertical - btNovaAg.Height) / 2);
+            // desligada nas configuracoes, a parte de baixo some e as fixas tomam a coluna inteira
+            painelAguardo = aguardo; blocoFixas = fixas; itensAguardo = new Control[] { vazioAguardo, listaAguardo, lad, lbAguardo, btNovaAg };
+            AplicarAguardo();
 
             // navegação de dia + progresso
             Panel nav = new Panel { Dock = DockStyle.Top, Height = 56, BackColor = Tema.Fundo };
@@ -975,6 +980,12 @@ namespace MarkeAgenda
             filtroTipo.Items.Add("Todos os tipos");
             foreach (Tipo t in dados.Tipos) filtroTipo.Items.Add(t.Nome);
             filtroTipo.SelectedItem = sel != null && filtroTipo.Items.Contains(sel) ? sel : "Todos os tipos";
+
+            string selF = filtroTipoFixas.SelectedItem as string;
+            filtroTipoFixas.Items.Clear();
+            filtroTipoFixas.Items.Add("Todos os tipos");
+            foreach (Tipo t in dados.Tipos) filtroTipoFixas.Items.Add(t.Nome);
+            filtroTipoFixas.SelectedItem = selF != null && filtroTipoFixas.Items.Contains(selF) ? selF : "Todos os tipos";
             PreencherLista();
             MontarGrade();
             AtualizarProgresso();
@@ -993,6 +1004,19 @@ namespace MarkeAgenda
         }
 
         Tarefa Achar(string id) { return dados.Tarefas.FirstOrDefault(x => x.Id == id); }
+
+        Panel painelAguardo, blocoFixas;
+        Control[] itensAguardo;
+
+        /// Mostra ou esconde a secao "Em aguardo", conforme as configuracoes.
+        public void AplicarAguardo()
+        {
+            if (painelAguardo == null) return;
+            bool ver = dados.Config.MostrarAguardando;
+            foreach (Control c in itensAguardo) c.Visible = ver;
+            blocoFixas.Dock = ver ? DockStyle.Top : DockStyle.Fill;
+            if (!ver) blocoFixas.BringToFront();
+        }
 
         /// Tarefas fora da Lixeira.
         IEnumerable<Tarefa> Ativas { get { return dados.Tarefas.Where(t => t.Ativa()); } }
@@ -1017,8 +1041,11 @@ namespace MarkeAgenda
             vazioAguardo.Visible = listaAguardo.Items.Count == 0;
             if (vazioAguardo.Visible) vazioAguardo.BringToFront(); else listaAguardo.BringToFront();
 
-            Recarregar(listaFixas, Ativas.Where(x => x.Fixa).OrderBy(x => x.Titulo));
-            lbFixas.Text = "Tarefas fixas  (" + listaFixas.Items.Count + ")";
+            string tipoFixas = filtroTipoFixas.SelectedIndex > 0 ? dados.Tipos[filtroTipoFixas.SelectedIndex - 1].Id : null;
+            IEnumerable<Tarefa> fixasVis = Ativas.Where(x => x.Fixa);
+            if (tipoFixas != null) fixasVis = fixasVis.Where(x => x.TipoId == tipoFixas);
+            Recarregar(listaFixas, fixasVis.OrderBy(x => x.Titulo));
+            lbFixas.Text = "Tarefas fixas  (" + listaFixas.Items.Count + ")" + (tipoFixas != null ? "  -  filtrando" : "");
             vazioFixas.Visible = listaFixas.Items.Count == 0;
             if (vazioFixas.Visible) vazioFixas.BringToFront(); else listaFixas.BringToFront();
         }
@@ -1042,17 +1069,41 @@ namespace MarkeAgenda
             Config c = dados.Config;
             int passo = c.Intervalo <= 0 ? 30 : c.Intervalo;
             List<string> r = new List<string>();
-            // pausa de almoço: entre AlmocoInicio e AlmocoFim não há horários (só os criados pelo "+")
-            int almIni = Minutos(c.AlmocoInicio, -1), almFim = Minutos(c.AlmocoFim, -1);
+            // intervalos (almoco, cafe, reuniao fixa...): dentro deles nao ha horarios na agenda
+            List<Intervalo> fora = dados.IntervalosAtivos();
             for (int m = c.HoraInicio * 60; m <= c.HoraFim * 60; m += passo)
             {
-                if (c.PausaAlmoco && almIni >= 0 && almFim > almIni && m > almIni && m < almFim) continue;
+                if (dados.EmIntervalo(m)) continue;
                 r.Add((m / 60).ToString("00") + ":" + (m % 60).ToString("00"));
             }
-            if (c.PausaAlmoco && almFim > 0 && almFim <= c.HoraFim * 60) r.Add((almFim / 60).ToString("00") + ":" + (almFim % 60).ToString("00"));
+            // a volta de cada intervalo vira um horario, para o dia nao ficar com buraco
+            foreach (Intervalo iv in fora)
+            {
+                int fim = iv.MinFim();
+                if (fim > 0 && fim <= c.HoraFim * 60 && !dados.EmIntervalo(fim)) r.Add((fim / 60).ToString("00") + ":" + (fim % 60).ToString("00"));
+            }
             List<string> extras;
             if (dados.HorariosExtras.TryGetValue(Tarefa.Dia(dia), out extras)) r.AddRange(extras);
             return r.Distinct().OrderBy(x => x).ToList();
+        }
+
+        /// A hora em que a tarefa termina (inicio + duracao).
+        static string FimDe(Tarefa t)
+        {
+            DateTime x;
+            if (!DateTime.TryParse("2000-01-01 " + (t.Hora ?? ""), out x)) return "";
+            return x.AddMinutes(Math.Max(0, t.Duracao)).ToString("HH:mm");
+        }
+
+        /// A tarefa comecou num horario anterior e ainda esta correndo neste?
+        bool Atravessa(Tarefa t, string slot, List<string> slots)
+        {
+            if (t.Duracao <= 0 || string.IsNullOrEmpty(t.Hora)) return false;
+            string inicio = SlotDe(t.Hora, slots);
+            if (inicio == slot || string.IsNullOrEmpty(inicio)) return false;
+            int mSlot = Minutos(slot, -1), mIni = Minutos(t.Hora, -1);
+            if (mSlot < 0 || mIni < 0) return false;
+            return mSlot > mIni && mSlot < mIni + t.Duracao;
         }
 
         static int Minutos(string hhmm, int padrao)
@@ -1166,7 +1217,7 @@ namespace MarkeAgenda
             if (!corDoDia.IsEmpty)
             {
                 string texto = evs.Count > 0
-                    ? string.Join("  ·  ", evs.Select(ev => ev.Titulo() + " (" + DialogoEventos.Periodo(ev) + ")"))
+                    ? string.Join("  ·  ", evs.Select(ev => ev.Titulo() + " (" + (ev.DiaInteiro() ? DialogoEventos.Periodo(ev) : ev.Faixa()) + ")"))
                     : (dia.DayOfWeek == DayOfWeek.Saturday ? "Sábado" : "Domingo");
                 Color cb = corDoDia;
                 Panel faixa = new DoubleBufferedPanel { Location = new Point(0, 0), Size = new Size(larguraUtil, 40), BackColor = Tema.Misturar(cb, Tema.Fundo, 0.35) };
@@ -1181,7 +1232,9 @@ namespace MarkeAgenda
             foreach (string slot in slots)
             {
                 List<Tarefa> aqui = doDia.Where(t => SlotDe(t.Hora, slots) == slot).ToList();
-                int nLinhas = Math.Max(1, (aqui.Count + porLinha - 1) / porLinha);
+                // tarefas que comecaram antes e ainda estao correndo neste horario
+                List<Tarefa> seguindo = doDia.Where(t => Atravessa(t, slot, slots)).ToList();
+                int nLinhas = Math.Max(1, (aqui.Count + seguindo.Count + porLinha - 1) / porLinha);
                 int altura = Math.Max(54, nLinhas * (chipA + gap) + gap);
                 bool cheia = slot.EndsWith(":00");
                 bool extra = EhExtra(slot);
@@ -1231,6 +1284,27 @@ namespace MarkeAgenda
                     c.Size = new Size(chipL, chipA);
                     LigarSoltar(c, slot, linha);
                     linha.Controls.Add(c);
+                }
+                // rabicho das que vieram do horario de cima: so o nome, sem poder arrastar
+                for (int i = 0; i < seguindo.Count; i++)
+                {
+                    Tarefa ts = seguindo[i];
+                    int pos = aqui.Count + i;
+                    Label cont = new Label
+                    {
+                        Text = "↳  " + ts.Titulo + "   (até " + FimDe(ts) + ")",
+                        AutoEllipsis = true,
+                        ForeColor = Tema.Fraco,
+                        Font = Tema.Pequena,
+                        TextAlign = ContentAlignment.MiddleLeft,
+                        BackColor = Tema.Misturar(dados.CorDe(ts), Tema.Fundo, 0.12),
+                        Location = new Point(colHora + (pos % porLinha) * (chipL + gap), gap + (pos / porLinha) * (chipA + gap)),
+                        Size = new Size(chipL, chipA),
+                        Padding = new Padding(10, 0, 0, 0),
+                    };
+                    new ToolTip().SetToolTip(cont, ts.Titulo + " — " + ts.Hora + " às " + FimDe(ts));
+                    LigarSoltar(cont, slot, linha);
+                    linha.Controls.Add(cont);
                 }
                 grade.Controls.Add(linha);
                 linhas[slot] = linha;
@@ -1337,7 +1411,23 @@ namespace MarkeAgenda
 
         void Excluir(Tarefa t)
         {
-            if (MessageBox.Show(this, "Mandar \"" + t.Titulo + "\" para a Lixeira?\n\nDá para restaurar por 30 dias (menu do seu nome > Lixeira).", "Excluir tarefa", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            if (t.Repete())
+            {
+                // tarefa que repete: ou tira so o dia que esta na tela, ou a repeticao inteira
+                using (DialogoExcluirRepeticao f = new DialogoExcluirRepeticao(t, dia))
+                {
+                    if (f.ShowDialog(this) != DialogResult.OK) return;
+                    if (f.SoEsta)
+                    {
+                        t.ExcluirSo(dia);
+                        t.Mod = Sincronia.Agora();
+                        dados.Salvar(); AtualizarTudo();
+                        lbStatus.Text = "\"" + t.Titulo + "\" saiu do dia " + dia.ToString("dd/MM") + ". As outras repeticoes continuam.";
+                        return;
+                    }
+                }
+            }
+            else if (MessageBox.Show(this, "Mandar \"" + t.Titulo + "\" para a Lixeira?\n\nDá para restaurar por 30 dias (menu do seu nome > Lixeira).", "Excluir tarefa", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
             t.NaLixeira = Sincronia.Agora(); dados.Salvar(); AtualizarTudo();
             lbStatus.Text = "\"" + t.Titulo + "\" foi para a Lixeira.";
         }
