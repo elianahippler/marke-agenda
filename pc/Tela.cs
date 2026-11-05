@@ -774,9 +774,10 @@ namespace MarkeAgenda
             foreach (Control c in new Control[] { vazioFixas, listaFixas, Espaco(4), filtroTipoFixas, ladF, lbFixas, btNovaFixa, Espaco(10), linhaSep }) fixas.Controls.Add(c);
             foreach (Control c in new Control[] { vazioAguardo, listaAguardo, Espaco(4), lad, lbAguardo, fixas, btNovaAg }) aguardo.Controls.Add(c);
             // meio a meio: metade de cima para as fixas, metade de baixo para Em aguardo
-            aguardo.Resize += (s, e) => fixas.Height = Math.Max(160, (aguardo.ClientSize.Height - aguardo.Padding.Vertical - btNovaAg.Height) / 2);
+            aguardo.Resize += (s, e) => { if (dados.Config.MostrarAguardando) fixas.Height = Math.Max(160, (aguardo.ClientSize.Height - aguardo.Padding.Vertical - btNovaAg.Height) / 2); };
             // desligada nas configuracoes, a parte de baixo some e as fixas tomam a coluna inteira
-            painelAguardo = aguardo; blocoFixas = fixas; itensAguardo = new Control[] { vazioAguardo, listaAguardo, lad, lbAguardo, btNovaAg };
+            painelAguardo = aguardo; blocoFixas = fixas; linhaSepFixas = linhaSep;
+            itensAguardo = new Control[] { vazioAguardo, listaAguardo, lad, lbAguardo, btNovaAg };
             AplicarAguardo();
 
             // navegação de dia + progresso
@@ -1005,7 +1006,7 @@ namespace MarkeAgenda
 
         Tarefa Achar(string id) { return dados.Tarefas.FirstOrDefault(x => x.Id == id); }
 
-        Panel painelAguardo, blocoFixas;
+        Panel painelAguardo, blocoFixas, linhaSepFixas;
         Control[] itensAguardo;
 
         /// Mostra ou esconde a secao "Em aguardo", conforme as configuracoes.
@@ -1015,7 +1016,10 @@ namespace MarkeAgenda
             bool ver = dados.Config.MostrarAguardando;
             foreach (Control c in itensAguardo) c.Visible = ver;
             blocoFixas.Dock = ver ? DockStyle.Top : DockStyle.Fill;
-            if (!ver) blocoFixas.BringToFront();
+            // o separador de baixo e o espaco so fazem sentido com as duas secoes
+            linhaSepFixas.Visible = ver;
+            if (!ver) { blocoFixas.Padding = new Padding(0); blocoFixas.BringToFront(); }
+            else blocoFixas.Padding = new Padding(0, 0, 0, 10);
         }
 
         /// Tarefas fora da Lixeira.
@@ -1036,10 +1040,14 @@ namespace MarkeAgenda
             Recarregar(lista, ts);
             lbTarefas.Text = "Tarefas  (" + lista.Items.Count + ")";
 
-            Recarregar(listaAguardo, Ativas.Where(x => x.Aguardando && !x.Concluida && !x.Fixa).OrderBy(x => x.Criada));
-            lbAguardo.Text = "Em aguardo  (" + listaAguardo.Items.Count + ")";
-            vazioAguardo.Visible = listaAguardo.Items.Count == 0;
-            if (vazioAguardo.Visible) vazioAguardo.BringToFront(); else listaAguardo.BringToFront();
+            if (dados.Config.MostrarAguardando)
+            {
+                Recarregar(listaAguardo, Ativas.Where(x => x.Aguardando && !x.Concluida && !x.Fixa).OrderBy(x => x.Criada));
+                lbAguardo.Text = "Em aguardo  (" + listaAguardo.Items.Count + ")";
+                vazioAguardo.Visible = listaAguardo.Items.Count == 0;
+                if (vazioAguardo.Visible) vazioAguardo.BringToFront(); else listaAguardo.BringToFront();
+            }
+            else vazioAguardo.Visible = false;
 
             string tipoFixas = filtroTipoFixas.SelectedIndex > 0 ? dados.Tipos[filtroTipoFixas.SelectedIndex - 1].Id : null;
             IEnumerable<Tarefa> fixasVis = Ativas.Where(x => x.Fixa);
