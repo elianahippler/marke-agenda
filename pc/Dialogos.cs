@@ -103,15 +103,15 @@ namespace MarkeAgenda
             string[] nomes = { "Não repete", "Todo dia", "Dias úteis", "Toda semana", "Todo mês", "A cada" };
             List<RadioButton> reps = new List<RadioButton>();
             // grupo próprio: sem isso, marcar a cor desmarcava a repetição (mesmo grupo de opções)
-            Panel grupoRep = new Panel { Location = new Point(X, y), Size = new Size(Largura - 2 * X, 26) };
-            int rx = X;
+            // duas linhas de três opções: nada fica cortado fora da janela
+            Panel grupoRep = new Panel { Location = new Point(X, y), Size = new Size(Largura - 2 * X, 54) };
             for (int i = 0; i < codigos.Length; i++)
             {
-                RadioButton r = new RadioButton { Text = nomes[i], AutoSize = true, Location = new Point(rx - X, 0), Tag = codigos[i], Checked = (t.Repetir ?? "") == codigos[i] };
-                reps.Add(r); grupoRep.Controls.Add(r); rx += i == 0 ? 100 : 92;
+                RadioButton r = new RadioButton { Text = nomes[i], AutoSize = true, Location = new Point((i % 3) * 140, (i / 3) * 27), Tag = codigos[i], Checked = (t.Repetir ?? "") == codigos[i] };
+                reps.Add(r); grupoRep.Controls.Add(r);
             }
             Controls.Add(grupoRep);
-            y += 28;
+            y += 58;
 
             // "A cada N dias/semanas/meses"
             NumericUpDown cada = new NumericUpDown { Width = 60, Location = new Point(X, y), Minimum = 1, Maximum = 365, Value = Math.Max(1, Math.Min(365, t.Cada())) };

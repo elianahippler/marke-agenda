@@ -413,6 +413,7 @@ namespace MarkeAgenda
                 AtualizarTudo();
                 VerificarAvisos();
                 Sincronizar(false);
+                ProcurarAtualizacao(false);
                 if (dados.Config.AtualizarAoAbrir) AtualizarIntegracoes(false);
                 if (dados.Tarefas.Count == 0 && string.IsNullOrEmpty(dados.Config.TomToken) && string.IsNullOrEmpty(dados.Config.MdUrlApi) && string.IsNullOrEmpty(dados.Config.GoogleRefresh))
                     lbStatus.Text = "Bem-vindo(a), " + s.Usuario.Nome + "! Comece por Acessos para ligar o seu Google Agenda, TomTicket e Markedesk.";
@@ -619,6 +620,7 @@ namespace MarkeAgenda
             });
             m.Items.Add("Abrir a pasta de dados", null, (s, e) => Process.Start(Dados.Pasta));
             m.Items.Add(new ToolStripSeparator());
+            m.Items.Add("Procurar atualização (versão " + VersaoApp.Atual + ")", null, (s, e) => ProcurarAtualizacao(true));
             m.Items.Add("Sincronizar com o celular agora", null, (s, e) => Sincronizar(true));
             if (ContaGoogle.Configurado)
             {
@@ -1019,7 +1021,15 @@ namespace MarkeAgenda
             // o separador de baixo e o espaco so fazem sentido com as duas secoes
             linhaSepFixas.Visible = ver;
             if (!ver) { blocoFixas.Padding = new Padding(0); blocoFixas.BringToFront(); }
-            else blocoFixas.Padding = new Padding(0, 0, 0, 10);
+            else
+            {
+                blocoFixas.Padding = new Padding(0, 0, 0, 10);
+                // volta ao lugar de origem (logo antes do botão "+ Nova em aguardo"): se ficasse na frente,
+                // ao religar as fixas iam parar embaixo de "Em aguardo"
+                Control bt = itensAguardo[itensAguardo.Length - 1];
+                painelAguardo.Controls.SetChildIndex(blocoFixas, Math.Max(0, painelAguardo.Controls.GetChildIndex(bt) - 1));
+                painelAguardo.PerformLayout();
+            }
         }
 
         /// Tarefas fora da Lixeira.
@@ -1045,7 +1055,7 @@ namespace MarkeAgenda
                 Recarregar(listaAguardo, Ativas.Where(x => x.Aguardando && !x.Concluida && !x.Fixa).OrderBy(x => x.Criada));
                 lbAguardo.Text = "Em aguardo  (" + listaAguardo.Items.Count + ")";
                 vazioAguardo.Visible = listaAguardo.Items.Count == 0;
-                if (vazioAguardo.Visible) vazioAguardo.BringToFront(); else listaAguardo.BringToFront();
+                listaAguardo.Visible = !vazioAguardo.Visible;   // só mostra/esconde: mudar a ordem bagunçava a coluna
             }
             else vazioAguardo.Visible = false;
 
@@ -1055,7 +1065,7 @@ namespace MarkeAgenda
             Recarregar(listaFixas, fixasVis.OrderBy(x => x.Titulo));
             lbFixas.Text = "Tarefas fixas  (" + listaFixas.Items.Count + ")" + (tipoFixas != null ? "  -  filtrando" : "");
             vazioFixas.Visible = listaFixas.Items.Count == 0;
-            if (vazioFixas.Visible) vazioFixas.BringToFront(); else listaFixas.BringToFront();
+            listaFixas.Visible = !vazioFixas.Visible;
         }
 
         /// Recarrega a lista sem perder a rolagem nem a seleção.
@@ -1531,6 +1541,71 @@ namespace MarkeAgenda
             if (MessageBox.Show(this, "Excluir " + n + " tarefa(s) concluída(s) sem horário?", "Limpar", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
             foreach (Tarefa t in Ativas.Where(t => t.Concluida && !t.EstaAgendada() && !t.Repete()).ToList()) t.NaLixeira = Sincronia.Agora();
             dados.Salvar(); AtualizarTudo();
+        }
+
+        // --- atualização do programa (baixa o instalador mais novo do GitHub)
+        const string UrlVersao = "https://raw.githubusercontent.com/elianahippler/marke-agenda/main/pc/versao.txt";
+        const string UrlInstalador = "https://raw.githubusercontent.com/elianahippler/marke-agenda/main/pc/Instalar%20Marke%20Agenda.exe";
+
+        void ProcurarAtualizacao(bool avisar)
+        {
+            if (avisar) lbStatus.Text = "Procurando atualização...";
+            Thread th = new Thread(() =>
+            {
+                try
+                {
+                    string nova = Http.Pedir("GET", UrlVersao + "?t=" + DateTime.Now.Ticks, null, null, null).Trim();
+                    Version vNova, vAtual = new Version(VersaoApp.Atual);
+                    if (!Version.TryParse(nova, out vNova)) throw new Exception("versão inválida no GitHub");
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (vNova <= vAtual)
+                        {
+                            if (avisar) { lbStatus.Text = "Você já está na versão mais nova (" + VersaoApp.Atual + ")."; MessageBox.Show(this, "A Marke Agenda já está na versão mais nova (" + VersaoApp.Atual + ").", "Atualização"); }
+                            return;
+                        }
+                        if (!avisar) { lbStatus.Text = "Nova versão " + nova + " disponível: menu do seu nome > Procurar atualização."; return; }
+                        if (MessageBox.Show(this, "Tem uma versão nova: " + nova + " (você está na " + VersaoApp.Atual + ").\n\nAtualizar agora? A Marke Agenda fecha, atualiza e abre de novo. Sua agenda fica do jeito que está.",
+                            "Atualização", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                        BaixarEAtualizar();
+                    }));
+                }
+                catch (Exception ex)
+                {
+                    Dados.Log("Atualização: " + ex.Message);
+                    if (avisar) BeginInvoke(new Action(() => { lbStatus.Text = "Não consegui procurar atualização."; MessageBox.Show(this, "Não consegui procurar atualização: " + ex.Message, "Atualização"); }));
+                }
+            });
+            th.IsBackground = true; th.Start();
+        }
+
+        void BaixarEAtualizar()
+        {
+            lbStatus.Text = "Baixando a versão nova...";
+            Thread th = new Thread(() =>
+            {
+                try
+                {
+                    System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
+                    string pasta = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "MarkeAgenda-atualizacao");
+                    System.IO.Directory.CreateDirectory(pasta);
+                    string inst = System.IO.Path.Combine(pasta, "Instalar Marke Agenda.exe");
+                    using (System.Net.WebClient wc = new System.Net.WebClient()) wc.DownloadFile(UrlInstalador + "?t=" + DateTime.Now.Ticks, inst);
+                    string aqui = System.IO.Path.GetDirectoryName(Application.ExecutablePath);
+                    BeginInvoke(new Action(() =>
+                    {
+                        // o instalador espera este programa fechar, instala por cima e abre de novo
+                        Process.Start(new ProcessStartInfo(inst, "--atualizar \"" + aqui + "\"") { UseShellExecute = false });
+                        sair = true;
+                        Close();
+                    }));
+                }
+                catch (Exception ex)
+                {
+                    BeginInvoke(new Action(() => { lbStatus.Text = "A atualização falhou."; MessageBox.Show(this, "Não consegui baixar a versão nova: " + ex.Message, "Atualização"); }));
+                }
+            });
+            th.IsBackground = true; th.Start();
         }
 
         // --- sincronização com o celular (Google Drive)

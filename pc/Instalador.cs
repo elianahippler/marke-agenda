@@ -22,6 +22,25 @@ namespace MarkeAgenda
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             if (args.Length > 0 && args[0] == "--desinstalar") { Application.Run(new Desinstalador()); return 0; }
+            if (args.Length > 0 && args[0] == "--atualizar")
+            {
+                // chamado pelo botão "Procurar atualização": instala por cima, sem perguntar, e abre de novo
+                string pasta = args.Length > 1 ? args[1].Trim('"') : (Instalacao.PastaInstalada() ?? Instalacao.PastaPadrao);
+                DateTime limite = DateTime.Now.AddSeconds(20);
+                while (Instalacao.Abertas().Count > 0 && DateTime.Now < limite) Thread.Sleep(300);
+                foreach (Process p in Instalacao.Abertas()) { try { p.Kill(); p.WaitForExit(5000); } catch { } }
+                try
+                {
+                    Instalador.Instalar(pasta, File.Exists(Instalacao.AtalhoMesa), File.Exists(Instalacao.AtalhoIniciar), null);
+                    Process.Start(Path.Combine(pasta, Instalacao.Exe));
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Não consegui atualizar a Marke Agenda: " + ex.Message, "Marke Agenda", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return 1;
+                }
+            }
             Application.Run(new Instalador());
             return 0;
         }
@@ -29,7 +48,7 @@ namespace MarkeAgenda
 
     static class Instalacao
     {
-        public const string Versao = "1.0.0";
+        public const string Versao = VersaoApp.Atual;
         public const string Chave = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\MarkeAgenda";
         public const string Exe = "Marke Agenda.exe";
         public const string Desinstalar = "Desinstalar Marke Agenda.exe";
@@ -154,7 +173,7 @@ namespace MarkeAgenda
             Tema.Aplicar(this);
         }
 
-        static void Instalar(string pasta, bool mesa, bool iniciar, string trazerDados)
+        internal static void Instalar(string pasta, bool mesa, bool iniciar, string trazerDados)
         {
             Directory.CreateDirectory(pasta);
             string exe = Path.Combine(pasta, Instalacao.Exe);
