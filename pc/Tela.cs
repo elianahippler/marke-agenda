@@ -1295,10 +1295,14 @@ namespace MarkeAgenda
                 colunaHora.Controls.Add(mais); colunaHora.Controls.Add(tirar);
                 LigarSoltar(colunaHora, slot, linha);
                 linha.Controls.Add(colunaHora);
+                // as que duram mais (continuam nos horarios de baixo) ficam primeiro, a esquerda; as outras vem ao lado
+                seguindo = seguindo.OrderBy(t => t.Hora).ToList();
+                aqui = aqui.OrderBy(t => slots.Any(sl => Atravessa(t, sl, slots)) ? 0 : 1).ToList();
                 for (int i = 0; i < aqui.Count; i++)
                 {
                     Chip c = new Chip(this, aqui[i]);
-                    c.Location = new Point(colHora + (i % porLinha) * (chipL + gap), gap + (i / porLinha) * (chipA + gap));
+                    int pc = seguindo.Count + i;
+                    c.Location = new Point(colHora + (pc % porLinha) * (chipL + gap), gap + (pc / porLinha) * (chipA + gap));
                     c.Size = new Size(chipL, chipA);
                     LigarSoltar(c, slot, linha);
                     linha.Controls.Add(c);
@@ -1307,7 +1311,7 @@ namespace MarkeAgenda
                 for (int i = 0; i < seguindo.Count; i++)
                 {
                     Tarefa ts = seguindo[i];
-                    int pos = aqui.Count + i;
+                    int pos = i;
                     Label cont = new Label
                     {
                         Text = "↳  " + ts.Titulo + "   (até " + FimDe(ts) + ")",
@@ -1320,7 +1324,7 @@ namespace MarkeAgenda
                         Size = new Size(chipL, chipA),
                         Padding = new Padding(10, 0, 0, 0),
                     };
-                    new ToolTip().SetToolTip(cont, ts.Titulo + " — " + ts.Hora + " às " + FimDe(ts));
+                    new ToolTip().SetToolTip(cont, ts.Titulo + ": " + ts.Hora + " às " + FimDe(ts));
                     LigarSoltar(cont, slot, linha);
                     linha.Controls.Add(cont);
                 }

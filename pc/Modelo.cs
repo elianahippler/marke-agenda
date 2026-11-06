@@ -163,7 +163,7 @@ namespace MarkeAgenda
     /// Versão do programa (o botão "Procurar atualização" compara com pc/versao.txt no GitHub).
     public static class VersaoApp
     {
-        public const string Atual = "1.1.0";
+        public const string Atual = "1.1.1";
     }
 
     public class Nota
