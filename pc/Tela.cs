@@ -591,6 +591,7 @@ namespace MarkeAgenda
             Tema.Menu(m);
             m.Items.Add("Levar pendentes deste dia para o próximo dia útil", null, (s, e) => LevarPendentes());
             m.Items.Add("Copiar o plano do dia", null, (s, e) => CopiarPlano());
+            m.Items.Add("Relatório da semana", null, (s, e) => RelatorioSemana());
             m.Items.Add("Limpar concluídas sem horário", null, (s, e) => LimparConcluidas());
             m.Items.Add(new ToolStripSeparator());
             ToolStripMenuItem iniciar = new ToolStripMenuItem("Abrir junto com o Windows") { Checked = IniciaComWindows(), CheckOnClick = true };
@@ -1536,6 +1537,87 @@ namespace MarkeAgenda
             }
             Clipboard.SetText(sb.ToString());
             lbStatus.Text = "Plano do dia copiado. É só colar.";
+        }
+
+        /// Relatório da semana do dia aberto (segunda a domingo): abre no navegador, dá para imprimir ou salvar em PDF.
+        void RelatorioSemana()
+        {
+            CultureInfo br = new CultureInfo("pt-BR");
+            DateTime seg = dia.AddDays(-(((int)dia.DayOfWeek + 6) % 7));
+            Func<string, string> h = x => System.Net.WebUtility.HtmlEncode(x ?? "");
+            StringBuilder dias = new StringBuilder();
+            int totMin = 0, totN = 0, totFeitas = 0;
+            Dictionary<string, int> porTipo = new Dictionary<string, int>();
+            Dictionary<string, string> corTipo = new Dictionary<string, string>();
+            for (int i = 0; i < 7; i++)
+            {
+                DateTime d = seg.AddDays(i);
+                List<Tarefa> ts = Ativas.Where(t => t.OcorreEm(d)).OrderBy(t => string.IsNullOrEmpty(t.Hora) ? "99" : t.Hora).ToList();
+                List<EventoDia> evs = dados.EventosEm(d);
+                bool fds = d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday;
+                if (fds && ts.Count == 0 && evs.Count == 0) continue;
+                int minDia = ts.Sum(t => Math.Max(0, t.Duracao)), feitas = ts.Count(t => t.ConcluidaEm(d));
+                totMin += minDia; totN += ts.Count; totFeitas += feitas;
+                dias.Append("<section><h2>" + h(br.TextInfo.ToTitleCase(d.ToString("dddd, dd/MM", br))) + "<span>" + ts.Count + " tarefa(s)"
+                    + (minDia > 0 ? ", " + Cartao.Duracao(minDia) + " planejadas" : "") + (ts.Count > 0 ? ", " + feitas + " concluída(s)" : "") + "</span></h2>");
+                foreach (EventoDia ev in evs) dias.Append("<div class=ev>" + h(ev.Titulo()) + "</div>");
+                if (ts.Count == 0) dias.Append("<p class=vazio>Nada planejado.</p>");
+                else
+                {
+                    dias.Append("<table><tr><th>Horário</th><th>Tarefa</th><th>Tipo</th><th>Duração</th><th>Situação</th></tr>");
+                    foreach (Tarefa t in ts)
+                    {
+                        Tipo tp = dados.TipoDe(t);
+                        string cor = string.IsNullOrEmpty(t.Cor) ? tp.Cor : t.Cor;
+                        bool f = t.ConcluidaEm(d);
+                        if (!porTipo.ContainsKey(tp.Nome)) { porTipo[tp.Nome] = 0; corTipo[tp.Nome] = tp.Cor; }
+                        porTipo[tp.Nome] += Math.Max(0, t.Duracao);
+                        dias.Append("<tr" + (f ? " class=feita" : "") + "><td>" + h(string.IsNullOrEmpty(t.Hora) ? "-" : t.Hora + (t.Duracao > 0 ? " às " + FimDe(t) : "")) + "</td>"
+                            + "<td><i style='background:" + h(cor) + "'></i>" + h(t.Titulo) + (string.IsNullOrEmpty(t.Origem) ? "" : " <small>" + h(t.Origem + (string.IsNullOrEmpty(t.Ref) ? "" : " " + t.Ref)) + "</small>") + "</td>"
+                            + "<td>" + h(tp.Nome) + "</td><td>" + Cartao.Duracao(t.Duracao) + "</td><td>" + (f ? "Concluída" : d.Date < DateTime.Today ? "Não feita" : "Pendente") + "</td></tr>");
+                    }
+                    dias.Append("</table>");
+                }
+                dias.Append("</section>");
+            }
+            StringBuilder tipos = new StringBuilder();
+            foreach (var kv in porTipo.Where(k => k.Value > 0).OrderByDescending(k => k.Value))
+                tipos.Append("<li><i style='background:" + h(corTipo[kv.Key]) + "'></i>" + h(kv.Key) + ": <b>" + Cartao.Duracao(kv.Value) + "</b></li>");
+            List<Tarefa> ag = Ativas.Where(t => t.Aguardando && !t.Concluida).ToList();
+            StringBuilder aguardo = new StringBuilder();
+            if (ag.Count > 0)
+            {
+                aguardo.Append("<section><h2>Em aguardo<span>" + ag.Count + "</span></h2><ul>");
+                foreach (Tarefa t in ag) aguardo.Append("<li>" + h(t.Titulo) + (string.IsNullOrEmpty(t.AguardandoDe) ? "" : " <small>aguardando " + h(t.AguardandoDe) + "</small>") + "</li>");
+                aguardo.Append("</ul></section>");
+            }
+            string titulo = "Planejamento da semana: " + seg.ToString("dd/MM") + " a " + seg.AddDays(6).ToString("dd/MM/yyyy");
+            string html = "<!DOCTYPE html><html lang=pt-BR><head><meta charset=utf-8><title>" + h(titulo) + "</title><style>"
+                + "body{font:14px 'Segoe UI',Arial,sans-serif;color:#1d2433;max-width:960px;margin:24px auto;padding:0 16px}"
+                + "h1{font-size:22px;margin:0 0 4px}.sub{color:#667;margin:0 0 18px}"
+                + ".res{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px}.res div{background:#eef3fb;border-radius:8px;padding:10px 16px}.res b{display:block;font-size:20px;color:#1f5fbf}"
+                + "ul.tipos{list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:6px 18px;margin:8px 0 18px}"
+                + "section{margin:18px 0;break-inside:avoid}h2{font-size:16px;border-bottom:2px solid #1f5fbf;padding-bottom:4px;margin:0 0 6px}h2 span{font-weight:normal;color:#667;font-size:13px;margin-left:10px}"
+                + "table{width:100%;border-collapse:collapse}th{text-align:left;font-size:12px;color:#667;font-weight:600;padding:4px 6px;border-bottom:1px solid #d5dbe5}"
+                + "td{padding:5px 6px;border-bottom:1px solid #eceff4;vertical-align:top}td:first-child{white-space:nowrap;width:110px}tr.feita td{color:#8a93a3}tr.feita td:nth-child(2){text-decoration:line-through}"
+                + "i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}small{color:#8a93a3}"
+                + ".ev{background:#fff4e0;border-left:4px solid #e0a030;padding:4px 10px;margin:4px 0}.vazio{color:#8a93a3;margin:4px 6px}"
+                + ".bt{position:fixed;top:16px;right:16px;background:#1f5fbf;color:#fff;border:0;border-radius:6px;padding:8px 14px;cursor:pointer}@media print{.bt{display:none}body{margin:0}}"
+                + "</style></head><body><button class=bt onclick='print()'>Imprimir ou salvar PDF</button>"
+                + "<h1>" + h(titulo) + "</h1><p class=sub>" + h(sessao.Usuario.Nome) + ", gerado em " + DateTime.Now.ToString("dd/MM/yyyy HH:mm") + "</p>"
+                + "<div class=res><div><b>" + totN + "</b>tarefas</div><div><b>" + (totMin > 0 ? Cartao.Duracao(totMin) : "0h") + "</b>planejadas</div><div><b>" + totFeitas + "</b>concluídas</div><div><b>" + (totN - totFeitas) + "</b>em aberto</div></div>"
+                + (tipos.Length > 0 ? "<ul class=tipos>" + tipos + "</ul>" : "")
+                + dias + aguardo + "</body></html>";
+            try
+            {
+                string pasta = System.IO.Path.Combine(Dados.Pasta, "relatorios");
+                System.IO.Directory.CreateDirectory(pasta);
+                string arq = System.IO.Path.Combine(pasta, "semana-" + seg.ToString("yyyy-MM-dd") + ".html");
+                System.IO.File.WriteAllText(arq, html, new UTF8Encoding(true));
+                Process.Start(arq);
+                lbStatus.Text = "Relatório da semana aberto no navegador.";
+            }
+            catch (Exception ex) { MessageBox.Show(this, "Não consegui gerar o relatório: " + ex.Message, "Relatório"); }
         }
 
         void LimparConcluidas()
